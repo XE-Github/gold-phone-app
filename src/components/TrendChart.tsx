@@ -49,6 +49,13 @@ function formatCN(time: Time, tickMarkType: TickMarkType): string | null {
   }
 }
 
+/** 悬停时刻标签：UTC 秒级时间戳 → "MM/DD HH:MM"（真实 UTC，与时间轴口径一致） */
+function formatHoverTime(timeSec: number): string {
+  const d = new Date(timeSec * 1000);
+  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+}
+
 interface SeriesDef {
   instrumentId: string;
   label: string;
@@ -87,6 +94,11 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [hasData, setHasData] = useState(false);
   const [legendPrices, setLegendPrices] = useState<Record<string, number>>({});
+  // 鼠标悬停时：图例显示「与鼠标同一纵轴(同一时间)上各条线的价格」，而非最新实时价。
+  // null = 未悬停（图例回落到实时价）；非 null = 悬停点各 instrumentId 的该时刻值。
+  const [hoverPrices, setHoverPrices] = useState<Record<string, number> | null>(null);
+  // 悬停时刻（秒级 UTC 时间戳），用于在图例上标出“看的是哪个时间点”。
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
   // callback ref：节点挂载/卸载（含 HMR 重建 div）都触发，自动重建图表。
   const attachChart = useCallback((node: HTMLDivElement | null) => {
@@ -171,6 +183,29 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
     });
     chart.priceScale("future-guide").applyOptions({ visible: false });
     guideRef.current = guide;
+
+    // 悬停联动：鼠标在图上移动时，从 param.seriesData 取「该时间列上各条线的值」，
+    // 更新图例为同一纵轴(同一时刻)的价格；移出图表(param.time 为空)时回落到实时价。
+    chart.subscribeCrosshairMove((param) => {
+      if (isDisposed.current) return;
+      if (param.time == null || !param.point) {
+        setHoverPrices(null);
+        setHoverTime(null);
+        return;
+      }
+      const next: Record<string, number> = {};
+      for (const def of SERIES_DEFS) {
+        const series = seriesMapRef.current.get(def.instrumentId);
+        if (!series) continue;
+        const point = param.seriesData.get(series) as LineData | undefined;
+        // 引导系列(value=0)与无值点不计入
+        if (point && typeof point.value === "number" && point.value > 0) {
+          next[def.instrumentId] = point.value;
+        }
+      }
+      setHoverPrices(Object.keys(next).length > 0 ? next : null);
+      setHoverTime(typeof param.time === "number" ? param.time : null);
+    });
 
     setChartEpoch((e) => e + 1);
   }, []);
@@ -338,11 +373,23 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
         </span>
       </div>
 
-      {/* 紧凑图例：两条线 + 当前价 */}
-      <div className="mt-2 flex flex-wrap gap-2">
+      {/* 紧凑图例：两条线 + 价格。
+          悬停时显示「与鼠标同一时间列」上各线的价格（hoverPrices）；未悬停回落到实时价。 */}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {hoverTime != null && (
+          <span className="inline-flex items-center rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] tabular-nums text-amber-300">
+            {formatHoverTime(hoverTime)}
+          </span>
+        )}
         {SERIES_DEFS.map((def) => {
+          const hover = hoverPrices?.[def.instrumentId];
           const live = quotes.get(def.instrumentId)?.price;
-          const price = live != null && live > 0 ? live : legendPrices[def.instrumentId];
+          const price =
+            hover != null && hover > 0
+              ? hover
+              : live != null && live > 0
+                ? live
+                : legendPrices[def.instrumentId];
           return (
             <span
               key={def.instrumentId}
