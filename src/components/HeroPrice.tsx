@@ -3,7 +3,6 @@
 import type { Quote } from "@/lib/types";
 import {
   QUOTE_METAS,
-  QUICK_METAS,
   changeView,
   changeColorClass,
   fmtPrice,
@@ -91,35 +90,6 @@ export function HeroPrice({
         })}
       </div>
 
-      {/* 国内现货/期货快捷行 */}
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        {QUICK_METAS.map((meta) => {
-          const q = quotes.get(meta.instrumentId);
-          const cv = changeView(q);
-          const fresh = freshnessBadge(q?.source);
-          return (
-            <div
-              key={meta.instrumentId}
-              className="rounded-2xl border border-white/5 bg-slate-900/40 px-2.5 py-2"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="truncate text-[11px] text-slate-400">{meta.shortName}</span>
-                <span className={`shrink-0 text-[9px] ${fresh.cls}`}>{fresh.label}</span>
-              </div>
-              <div className="mt-0.5 text-sm font-semibold tabular-nums text-amber-100">
-                {q ? fmtPrice(q.price) : "--"}
-              </div>
-              {cv ? (
-                <div className={`text-[10px] tabular-nums ${changeColorClass(cv.up)}`}>
-                  {cv.text.split(" ")[0]}
-                </div>
-              ) : (
-                <div className="text-[10px] text-slate-600">--</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </section>
   );
 }

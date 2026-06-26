@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Quote, QuotesPayload, BankGoldPayload } from "@/lib/types";
 import { HeroPrice } from "@/components/HeroPrice";
+import { TrendChart } from "@/components/TrendChart";
 import { PriceAlertCard } from "@/components/PriceAlertCard";
 import { AlertToast } from "@/components/AlertToast";
 import { BankGoldCompare } from "@/components/BankGoldCompare";
@@ -108,6 +109,7 @@ export default function Home() {
 
       <div className="space-y-3">
         <HeroPrice quotes={quotes} serverTime={lastUpdate} />
+        <TrendChart quotes={quotes} />
         <PriceAlertCard
           rules={alerts.rules}
           hydrated={alerts.hydrated}
