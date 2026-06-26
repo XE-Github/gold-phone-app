@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AlertDirection, AlertRule } from "@/lib/usePriceAlerts";
-import { QUOTE_METAS, QUICK_METAS, metaFor, fmtPrice } from "@/lib/display";
+import { ALERT_METAS, metaFor, fmtPrice } from "@/lib/display";
+import { notificationPermission } from "@/lib/notify";
 
-const ALERTABLE = [...QUOTE_METAS, ...QUICK_METAS].filter((m) => m.unit !== "");
+const ALERTABLE = ALERT_METAS;
 
 export function PriceAlertCard({
   rules,
@@ -28,8 +29,25 @@ export function PriceAlertCard({
   const [thresholdStr, setThresholdStr] = useState("");
   const [sound, setSound] = useState(true);
   const [error, setError] = useState("");
+  const [perm, setPerm] = useState<NotificationPermission | "unsupported">("unsupported");
+
+  useEffect(() => {
+    queueMicrotask(() => setPerm(notificationPermission()));
+  }, []);
 
   const currentPrice = priceById.get(instrumentId);
+
+  async function enableNotify() {
+    const result = await onRequestPermission();
+    setPerm(result as NotificationPermission | "unsupported");
+  }
+
+  const notifyBtn = {
+    granted: { text: "🔔 系统通知已开启", cls: "bg-emerald-500/15 text-emerald-300" },
+    denied: { text: "通知被拒绝（去浏览器设置开启）", cls: "bg-rose-500/15 text-rose-300" },
+    default: { text: "开启系统通知", cls: "bg-amber-500/20 text-amber-200" },
+    unsupported: { text: "浏览器不支持通知", cls: "bg-slate-700/40 text-slate-400" },
+  }[perm];
 
   function submit() {
     const threshold = Number(thresholdStr);
@@ -45,9 +63,15 @@ export function PriceAlertCard({
 
   return (
     <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">价格提醒</h2>
-        <span className="text-[11px] text-slate-500">本地保存 · 仅本机</span>
+        <button
+          onClick={enableNotify}
+          disabled={perm === "granted" || perm === "unsupported"}
+          className={`min-h-[32px] rounded-lg px-2.5 text-[11px] ${notifyBtn.cls}`}
+        >
+          {notifyBtn.text}
+        </button>
       </div>
 
       {/* 新建规则 */}
@@ -61,7 +85,7 @@ export function PriceAlertCard({
           >
             {ALERTABLE.map((m) => (
               <option key={m.instrumentId} value={m.instrumentId}>
-                {m.shortName}（{m.unit}）
+                {m.name}{m.unit ? `（${m.unit}）` : ""}
               </option>
             ))}
           </select>
@@ -102,6 +126,10 @@ export function PriceAlertCard({
           />
           触发时播放提示音（需先与页面交互一次浏览器才允许出声）
         </label>
+        <p className="text-[10px] leading-relaxed text-slate-500">
+          ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
+          若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
+        </p>
         {error && <p className="text-xs text-rose-400">{error}</p>}
       </div>
 

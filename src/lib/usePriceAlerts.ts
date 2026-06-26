@@ -4,6 +4,11 @@
 // 同规则满足后只触发一次，价格离开阈值才复位（避免反复响）。
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  registerNotificationSW,
+  requestNotificationPermission as requestPerm,
+  showSystemNotification,
+} from "./notify";
 
 const STORAGE_KEY = "gold-phone-price-alerts-v1";
 
@@ -68,17 +73,6 @@ function playBeep() {
   }
 }
 
-function notify(title: string, body: string) {
-  try {
-    if (typeof Notification === "undefined") return;
-    if (Notification.permission === "granted") {
-      new Notification(title, { body });
-    }
-  } catch {
-    /* 忽略通知失败 */
-  }
-}
-
 export function usePriceAlerts(priceById: Map<string, number>) {
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [hydrated, setHydrated] = useState(false);
@@ -93,6 +87,8 @@ export function usePriceAlerts(priceById: Map<string, number>) {
       setRules(loadRules());
       setHydrated(true);
     });
+    // 提前注册通知 Service Worker（手机弹窗依赖它；已授权才真正发通知）
+    void registerNotificationSW();
   }, []);
 
   // 持久化
@@ -123,7 +119,7 @@ export function usePriceAlerts(priceById: Map<string, number>) {
         lockedRef.current[rule.id] = true; // 锁定，避免重复触发
         const dir = rule.direction === "above" ? "突破上限" : "跌破下限";
         setFired({ rule, price, at: Date.now() });
-        notify(
+        void showSystemNotification(
           "黄金价格提醒",
           `价格 ${price.toFixed(2)} ${dir} ${rule.threshold.toFixed(2)}`,
         );
@@ -153,13 +149,7 @@ export function usePriceAlerts(priceById: Map<string, number>) {
   const dismissFired = useCallback(() => setFired(null), []);
 
   const requestNotificationPermission = useCallback(async () => {
-    try {
-      if (typeof Notification === "undefined") return "unsupported";
-      if (Notification.permission === "granted") return "granted";
-      return await Notification.requestPermission();
-    } catch {
-      return "denied";
-    }
+    return requestPerm();
   }, []);
 
   return {

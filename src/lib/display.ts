@@ -53,8 +53,29 @@ export const QUICK_METAS: QuoteMeta[] = [
   },
 ];
 
+// 价格提醒可选标的（与主程序对齐）。含行情标的 + 8 家银行积存金。
+// 注：xau-cny 为理论换算价、银行积存金为牌价，均可设价格提醒。
+export const ALERT_METAS: QuoteMeta[] = [
+  { instrumentId: "xau-cny", name: "人民币理论金价", shortName: "人民币理论金价", unit: "元/克" },
+  { instrumentId: "xau-usd", name: "伦敦金 XAU/USD", shortName: "伦敦金", unit: "美元/盎司" },
+  { instrumentId: "usd-cny", name: "美元兑人民币", shortName: "美元汇率", unit: "" },
+  { instrumentId: "sge-au9999", name: "SGE Au99.99", shortName: "Au99.99", unit: "元/克" },
+  { instrumentId: "sge-autd", name: "SGE Au(T+D)", shortName: "Au(T+D)", unit: "元/克" },
+  { instrumentId: "shfe-au-main", name: "沪金主力", shortName: "沪金主力", unit: "元/克" },
+  { instrumentId: "icbc-acc-gold", name: "工商银行积存金", shortName: "工行积存金", unit: "元/克" },
+  { instrumentId: "ccb-acc-gold", name: "建设银行积存金", shortName: "建行积存金", unit: "元/克" },
+  { instrumentId: "boc-acc-gold", name: "中国银行积存金", shortName: "中行积存金", unit: "元/克" },
+  { instrumentId: "cmb-acc-gold", name: "招商银行积存金", shortName: "招行积存金", unit: "元/克" },
+  { instrumentId: "cib-acc-gold", name: "兴业银行积存金", shortName: "兴业积存金", unit: "元/克" },
+  { instrumentId: "czbank-acc-gold", name: "浙商银行积存金", shortName: "浙商积存金", unit: "元/克" },
+  { instrumentId: "cmbc-acc-gold", name: "民生银行积存金", shortName: "民生积存金", unit: "元/克" },
+  { instrumentId: "cgb-acc-gold", name: "广发银行积存金", shortName: "广发积存金", unit: "元/克" },
+];
+
 export function metaFor(instrumentId: string): QuoteMeta | undefined {
-  return [...QUOTE_METAS, ...QUICK_METAS].find((m) => m.instrumentId === instrumentId);
+  return [...QUOTE_METAS, ...QUICK_METAS, ...ALERT_METAS].find(
+    (m) => m.instrumentId === instrumentId,
+  );
 }
 
 export function fmtPrice(price: number | undefined, digits = 2): string {
@@ -99,6 +120,27 @@ export function fmtTime(timestamp?: string): string {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+// 行情数据「时效性」徽章：实时 / 近实时 / 延时 / 理论值 / 估算。
+// 诚实原则：只依据 source 子串判定，绝不臆造。
+export type Freshness = { label: string; cls: string; dot: string };
+export function freshnessBadge(source?: string): Freshness {
+  const s = source ?? "";
+  if (s.includes("自动计算") || s.includes("理论"))
+    return { label: "理论值", cls: "text-amber-300", dot: "bg-amber-400" };
+  if (s.includes("估算"))
+    return { label: "估算", cls: "text-slate-400", dot: "bg-slate-500" };
+  if (s.includes("秒级") || s.includes("近实时"))
+    return { label: "近实时", cls: "text-emerald-300", dot: "bg-emerald-400" };
+  if (s.includes("实时"))
+    return { label: "实时", cls: "text-emerald-300", dot: "bg-emerald-400" };
+  if (s.includes("延时"))
+    return { label: "延时", cls: "text-amber-300", dot: "bg-amber-400" };
+  // 其余真实源（官网/京东/汇喵牌价等）视为最新牌价
+  if (s.includes("官网") || s.includes("京东") || s.includes("汇喵"))
+    return { label: "最新牌价", cls: "text-emerald-300", dot: "bg-emerald-400" };
+  return { label: "—", cls: "text-slate-500", dot: "bg-slate-600" };
 }
 
 // 积存金来源徽章文案 + 颜色

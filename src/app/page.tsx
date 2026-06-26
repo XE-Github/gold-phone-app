@@ -31,12 +31,14 @@ export default function Home() {
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const mounted = useRef(true);
 
-  // 价格提醒：监控行情价格表（取 price）
+  // 价格提醒：监控行情 + 银行积存金价格表（取 price）。
+  // 银行积存金的 price=你买入价(ask)，与对比卡片口径一致。
   const priceById = useMemo(() => {
     const m = new Map<string, number>();
     for (const [id, q] of quotes) m.set(id, q.price);
+    for (const [id, q] of bankQuotes) m.set(id, q.price);
     return m;
-  }, [quotes]);
+  }, [quotes, bankQuotes]);
 
   const alerts = usePriceAlerts(priceById);
 
@@ -83,9 +85,6 @@ export default function Home() {
     };
   }, [loadQuotes, loadBank]);
 
-  const benchmark =
-    bankQuotesBenchmark(quotes) ?? undefined;
-
   return (
     <main className="mx-auto min-h-dvh w-full max-w-md px-3 pb-16 pt-3">
       <AlertToast fired={alerts.fired} onDismiss={alerts.dismissFired} />
@@ -108,7 +107,7 @@ export default function Home() {
       )}
 
       <div className="space-y-3">
-        <HeroPrice quotes={quotes} />
+        <HeroPrice quotes={quotes} serverTime={lastUpdate} />
         <PriceAlertCard
           rules={alerts.rules}
           hydrated={alerts.hydrated}
@@ -120,7 +119,6 @@ export default function Home() {
         />
         <BankGoldCompare
           quotes={bankQuotes}
-          benchmark={benchmark}
           realCount={bankMeta.realCount}
           total={bankMeta.total}
         />
@@ -135,15 +133,6 @@ export default function Home() {
       </footer>
     </main>
   );
-}
-
-// 取基准价（SGE Au99.99 优先，退 xau-cny）给积存金对比展示
-function bankQuotesBenchmark(quotes: Map<string, Quote>): number | null {
-  const sge = quotes.get("sge-au9999")?.price;
-  if (sge && sge > 0) return sge;
-  const xauCny = quotes.get("xau-cny")?.price;
-  if (xauCny && xauCny > 0) return xauCny;
-  return null;
 }
 
 function StatusPill({ status, lastUpdate }: { status: Status; lastUpdate: number | null }) {
