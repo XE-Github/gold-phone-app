@@ -3,7 +3,6 @@
 
 import { NextResponse } from "next/server";
 import { getQuotes } from "@/lib/quotes";
-import { captureTicks } from "@/lib/tickBuffer";
 import type { QuotesPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic"; // 始终实时抓取，不做静态缓存
@@ -12,9 +11,6 @@ export const revalidate = 0;
 export async function GET() {
   try {
     const { quotes, warnings } = await getQuotes();
-    // 把 xau-usd / xau-cny 落入分时缓冲，供「国际实时」趋势图取过去24h历史。
-    // 前端每 5s 轮询此接口 → 缓冲随时间逐分钟填充（不预填、不臆造历史）。
-    captureTicks(quotes);
     const payload: QuotesPayload = {
       quotes,
       warnings,

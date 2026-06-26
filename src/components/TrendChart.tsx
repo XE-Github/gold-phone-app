@@ -378,9 +378,9 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
         {!loading && !hasData && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-white/10 bg-slate-950/50 px-6 text-center">
             <div>
-              <p className="text-sm font-medium text-slate-200">正在采集实时分时</p>
+              <p className="text-sm font-medium text-slate-200">暂无分时数据</p>
               <p className="mt-1 text-xs text-slate-500">
-                本机刚启动时无历史，曲线会随轮询逐分钟生成（不预填估算数据）。
+                分时接口暂不可达（非交易时段或网络问题），稍后自动重试。
               </p>
             </div>
           </div>
@@ -395,7 +395,7 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-600">
         <span className="rounded bg-slate-900/70 px-1.5 py-0.5 text-slate-500">UTC</span>
-        <span className="flex-1">· 过去24小时伦敦金/理论金价分时（本机tick采集，UTC时间），右端追加实时点</span>
+        <span className="flex-1">· 伦敦金当日分时（新浪国际期货，UTC时间）+ 人民币理论金价（按当前汇率换算），右端追加实时点</span>
         {xauUsd?.dayHigh != null && xauUsd.dayLow != null && (
           <span
             className="shrink-0 tabular-nums text-slate-400"
