@@ -122,7 +122,8 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "rgba(251,191,36,0.3)", width: 1, style: 2, labelBackgroundColor: "#fbbf24" },
+        // 竖线(时间轴方向)：labelVisible=false → 不在时间轴底部弹「鼠标横向位置的时间气泡」（用户要求删除）
+        vertLine: { color: "rgba(251,191,36,0.3)", width: 1, style: 2, labelVisible: false },
         horzLine: { color: "rgba(251,191,36,0.3)", width: 1, style: 2, labelBackgroundColor: "#fbbf24" },
       },
       leftPriceScale: {
