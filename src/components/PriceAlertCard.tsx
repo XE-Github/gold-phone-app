@@ -126,9 +126,26 @@ export function PriceAlertCard({
           />
           触发时播放提示音（需先与页面交互一次浏览器才允许出声）
         </label>
+
+        {/* 被拒绝时给可操作步骤：denied 后浏览器不再弹请求框，必须手动到站点设置改回 */}
+        {perm === "denied" && (
+          <div className="rounded-xl border border-rose-400/20 bg-rose-500/[0.08] p-2.5 text-[11px] leading-relaxed text-rose-100/90">
+            <p className="font-semibold text-rose-200">通知已被浏览器屏蔽，按钮无法再弹出请求框</p>
+            <p className="mt-1 text-rose-100/80">
+              这是浏览器记住了本站点的「拒绝」，需手动改回：点地址栏左侧 🔒/ⓘ →「通知」→ 改为「允许」，
+              再回来刷新页面。（手机系统的浏览器通知总开关也要开着）
+            </p>
+          </div>
+        )}
+
         <p className="text-[10px] leading-relaxed text-slate-500">
           ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
           若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
+          排查通知可打开诊断页{" "}
+          <a href="/notify-check" className="text-amber-300 underline">
+            /notify-check
+          </a>
+          。
         </p>
         {error && <p className="text-xs text-rose-400">{error}</p>}
       </div>

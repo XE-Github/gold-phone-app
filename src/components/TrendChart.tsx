@@ -49,13 +49,6 @@ function formatCN(time: Time, tickMarkType: TickMarkType): string | null {
   }
 }
 
-/** 悬停时刻标签：UTC 秒级时间戳 → "MM/DD HH:MM"（真实 UTC，与时间轴口径一致） */
-function formatHoverTime(timeSec: number): string {
-  const d = new Date(timeSec * 1000);
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
-}
-
 interface SeriesDef {
   instrumentId: string;
   label: string;
@@ -94,11 +87,12 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [hasData, setHasData] = useState(false);
   const [legendPrices, setLegendPrices] = useState<Record<string, number>>({});
-  // 鼠标悬停时：图例显示「与鼠标同一纵轴(同一时间)上各条线的价格」，而非最新实时价。
-  // null = 未悬停（图例回落到实时价）；非 null = 悬停点各 instrumentId 的该时刻值。
-  const [hoverPrices, setHoverPrices] = useState<Record<string, number> | null>(null);
-  // 悬停时刻（秒级 UTC 时间戳），用于在图例上标出“看的是哪个时间点”。
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  // 悬停轴标签：鼠标停在某时间列时，把两条线在该时刻的值标到「各自的价格轴」上。
+  // 图例不受影响（始终显示实时价）。null=未悬停（不显示标签）。
+  // side: "right"=国际金价(xau-usd) 标右轴；"left"=国内理论金价(xau-cny) 标左轴。y=该值在图上的像素纵坐标。
+  const [axisLabels, setAxisLabels] = useState<
+    { id: string; side: "left" | "right"; value: number; y: number; color: string }[] | null
+  >(null);
 
   // callback ref：节点挂载/卸载（含 HMR 重建 div）都触发，自动重建图表。
   const attachChart = useCallback((node: HTMLDivElement | null) => {
@@ -184,27 +178,34 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
     chart.priceScale("future-guide").applyOptions({ visible: false });
     guideRef.current = guide;
 
-    // 悬停联动：鼠标在图上移动时，从 param.seriesData 取「该时间列上各条线的值」，
-    // 更新图例为同一纵轴(同一时刻)的价格；移出图表(param.time 为空)时回落到实时价。
+    // 悬停联动：鼠标移动时，取该时间列上两条线各自的值，用 priceToCoordinate 求像素纵坐标，
+    // 渲染到各自的价格轴上（国际→右轴、国内→左轴）。图例不动。移出图表则清空标签。
     chart.subscribeCrosshairMove((param) => {
       if (isDisposed.current) return;
       if (param.time == null || !param.point) {
-        setHoverPrices(null);
-        setHoverTime(null);
+        setAxisLabels(null);
         return;
       }
-      const next: Record<string, number> = {};
+      const labels: { id: string; side: "left" | "right"; value: number; y: number; color: string }[] = [];
       for (const def of SERIES_DEFS) {
         const series = seriesMapRef.current.get(def.instrumentId);
         if (!series) continue;
         const point = param.seriesData.get(series) as LineData | undefined;
-        // 引导系列(value=0)与无值点不计入
-        if (point && typeof point.value === "number" && point.value > 0) {
-          next[def.instrumentId] = point.value;
-        }
+        if (!point || typeof point.value !== "number" || point.value <= 0) continue;
+        const y = series.priceToCoordinate(point.value);
+        if (y == null) continue; // 该值不在可视区间
+        labels.push({
+          id: def.instrumentId,
+          side: def.rightAxis ? "right" : "left",
+          value: point.value,
+          y,
+          color: def.color,
+        });
       }
-      setHoverPrices(Object.keys(next).length > 0 ? next : null);
-      setHoverTime(typeof param.time === "number" ? param.time : null);
+      // queueMicrotask：把 setState 推迟出回调同步体，沿用本项目规避 set-state-in-effect 的写法。
+      queueMicrotask(() => {
+        if (!isDisposed.current) setAxisLabels(labels.length > 0 ? labels : null);
+      });
     });
 
     setChartEpoch((e) => e + 1);
@@ -373,23 +374,12 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
         </span>
       </div>
 
-      {/* 紧凑图例：两条线 + 价格。
-          悬停时显示「与鼠标同一时间列」上各线的价格（hoverPrices）；未悬停回落到实时价。 */}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {hoverTime != null && (
-          <span className="inline-flex items-center rounded-lg border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] tabular-nums text-amber-300">
-            {formatHoverTime(hoverTime)}
-          </span>
-        )}
+      {/* 紧凑图例：两条线 + 当前价（始终显示最新实时价）。
+          悬停时各线在「各自的价格轴」上显示十字线价格标签：国际金价→右轴、国内理论金价→左轴。 */}
+      <div className="mt-2 flex flex-wrap gap-2">
         {SERIES_DEFS.map((def) => {
-          const hover = hoverPrices?.[def.instrumentId];
           const live = quotes.get(def.instrumentId)?.price;
-          const price =
-            hover != null && hover > 0
-              ? hover
-              : live != null && live > 0
-                ? live
-                : legendPrices[def.instrumentId];
+          const price = live != null && live > 0 ? live : legendPrices[def.instrumentId];
           return (
             <span
               key={def.instrumentId}
@@ -438,6 +428,23 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
           role="img"
           aria-label="国际黄金实时趋势图：伦敦金与人民币理论金价"
         />
+        {/* 悬停轴标签：国际金价标右轴、国内理论金价标左轴，纵向对齐到各自线在该时刻的位置 */}
+        {axisLabels?.map((l) => (
+          <span
+            key={l.id}
+            className={`pointer-events-none absolute z-20 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums shadow ${
+              l.side === "right" ? "right-0" : "left-0"
+            }`}
+            style={{
+              top: l.y,
+              transform: "translateY(-50%)",
+              backgroundColor: l.color,
+              color: "#0f172a",
+            }}
+          >
+            {l.side === "right" ? `$${l.value.toFixed(2)}` : `¥${l.value.toFixed(2)}`}
+          </span>
+        ))}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-600">
