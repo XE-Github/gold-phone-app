@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Quote, BankGoldPayload } from "@/lib/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Quote } from "@/lib/types";
 import { HeroPrice } from "@/components/HeroPrice";
 import { TrendChart } from "@/components/TrendChart";
 import { PriceAlertCard } from "@/components/PriceAlertCard";
@@ -9,8 +9,10 @@ import { AlertToast } from "@/components/AlertToast";
 import { BankGoldCompare } from "@/components/BankGoldCompare";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
+import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
 
-const BANK_INTERVAL = 15000; // 积存金 15s 轮询（慢数据，不走 SSE）
+// 积存金标的 id 集合：SSE 把行情+积存金合并推送，前端按 id 归属拆回两份。
+const BANK_IDS = new Set(BANK_GOLD_PRODUCTS.map((p) => p.instrumentId));
 
 function toMap(quotes: Quote[]): Map<string, Quote> {
   const m = new Map<string, Quote>();
@@ -41,29 +43,28 @@ export default function Home() {
 
   const alerts = usePriceAlerts(priceById);
 
-  const loadBank = useCallback(async () => {
-    try {
-      const res = await fetch("/api/bank-gold", { cache: "no-store" });
-      const data = (await res.json()) as BankGoldPayload;
-      if (!mounted.current) return;
-      setBankQuotes(toMap(data.quotes));
-      setBankMeta({ realCount: data.realCount, total: data.total });
-    } catch {
-      /* 保留旧数据 */
-    }
-  }, []);
-
   useEffect(() => {
     mounted.current = true;
 
-    // 行情：SSE 推送（后端 2s 抓一次，抓到即推；断线自动降级 5s 轮询）。
-    // queueMicrotask：把订阅/首帧抓取推迟出 effect 同步体，满足 react-hooks/set-state-in-effect。
+    // 行情+积存金：同一条 SSE 推送（对齐主程序——后端行情 2s 循环、积存金 3s 循环，
+    // 抓到即推；断线自动降级轮询）。payload 里行情与积存金 quotes 合并，前端按 id 拆回两份。
+    // queueMicrotask：把订阅推迟出 effect 同步体，满足 react-hooks/set-state-in-effect。
     let unsubscribe: (() => void) | null = null;
     queueMicrotask(() => {
       unsubscribe = subscribeQuotes(
         (data) => {
           if (!mounted.current) return;
-          setQuotes(toMap(data.quotes));
+          const market: Quote[] = [];
+          const bank: Quote[] = [];
+          for (const q of data.quotes) {
+            (BANK_IDS.has(q.instrumentId) ? bank : market).push(q);
+          }
+          setQuotes(toMap(market));
+          setBankQuotes(toMap(bank));
+          setBankMeta({
+            realCount: data.bankRealCount ?? 0,
+            total: data.bankTotal ?? bank.length,
+          });
           setWarnings(data.warnings ?? []);
           setLastUpdate(data.serverTime);
         },
@@ -71,18 +72,13 @@ export default function Home() {
           if (mounted.current) setStatus(s);
         },
       );
-      void loadBank();
     });
-
-    // 积存金：慢数据，独立 15s 轮询（不走 SSE）。
-    const b = window.setInterval(loadBank, BANK_INTERVAL);
 
     return () => {
       mounted.current = false;
       unsubscribe?.();
-      window.clearInterval(b);
     };
-  }, [loadBank]);
+  }, []);
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-md px-3 pb-16 pt-3">

@@ -39,6 +39,8 @@ export type QuotesPayload = {
   quotes: Quote[];
   warnings: string[];
   serverTime: number;
+  bankRealCount?: number; // 积存金真实数据条数（SSE 合并推送/降级轮询带，行情快照不带）
+  bankTotal?: number; // 积存金标的总数
 };
 
 export type BankGoldPayload = {
