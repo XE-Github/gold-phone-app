@@ -10,131 +10,13 @@
 // ⚠️ huimiao 字段名反直觉：purchase_value=你买入价(price/ask)，sale_value=你卖出价(bid)。
 // ⚠️ 京东只给单边价（卖出），bid 用全点差估算（sell 边真实、buy 边估算）。
 
-import type { Quote, BankGoldProduct } from "./types";
+import type { Quote } from "./types";
+import { BANK_GOLD_PRODUCTS, type ProductDef } from "./bankProducts";
 import { fetchIcbcAccrualQuote } from "./icbcDirect";
 import { fetchCcbAccrualQuote } from "./ccbDirect";
 
-// ==================== 产品定义 ====================
-
-type ProductDef = BankGoldProduct & {
-  bankCode: string;
-  huimiaoBankType: string | null;
-  huimiaoCurrencyType: string | null;
-  jdjrSku: string | null;
-  jdjrApi?: "v1" | "v2";
-  jdjrName?: string;
-  spreadFallback: { sellSpread: number; buySpread: number };
-};
-
-export const BANK_GOLD_PRODUCTS: ProductDef[] = [
-  {
-    instrumentId: "icbc-acc-gold",
-    bankName: "工商银行",
-    bankCode: "ICBC",
-    product: "工银积存金",
-    huimiaoBankType: "ICBC",
-    huimiaoCurrencyType: "Gold",
-    jdjrSku: null,
-    spreadFallback: { sellSpread: 3.2, buySpread: 3.2 },
-    minTradeAmount: "1克起",
-    spreadNote: "约6.4元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-  {
-    instrumentId: "czbank-acc-gold",
-    bankName: "浙商银行",
-    bankCode: "CZBANK",
-    product: "涌金积存金",
-    huimiaoBankType: null,
-    huimiaoCurrencyType: null,
-    jdjrSku: "1961543816",
-    jdjrApi: "v2",
-    spreadFallback: { sellSpread: 1.83, buySpread: 1.83 },
-    minTradeAmount: "1克起",
-    spreadNote: "卖出费率0.4%（按金额，非固定点差）",
-    tradingHours: "周一至周五 09:00–23:59:59，周六 00:00–02:00",
-  },
-  {
-    instrumentId: "ccb-acc-gold",
-    bankName: "建设银行",
-    bankCode: "CCB",
-    product: "龙鼎金",
-    huimiaoBankType: "CCB",
-    huimiaoCurrencyType: "Gold",
-    jdjrSku: null,
-    spreadFallback: { sellSpread: 3.0, buySpread: 3.0 },
-    minTradeAmount: "1克起",
-    spreadNote: "约6.0元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-  {
-    instrumentId: "boc-acc-gold",
-    bankName: "中国银行",
-    bankCode: "BOC",
-    product: "积利金",
-    huimiaoBankType: "BOC",
-    huimiaoCurrencyType: "Gold",
-    jdjrSku: null,
-    spreadFallback: { sellSpread: 2.3, buySpread: 2.3 },
-    minTradeAmount: "1克起",
-    spreadNote: "约4.6元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-  {
-    instrumentId: "cmb-acc-gold",
-    bankName: "招商银行",
-    bankCode: "CMB",
-    product: "招行金",
-    huimiaoBankType: "CMB",
-    huimiaoCurrencyType: "Gold",
-    jdjrSku: null,
-    spreadFallback: { sellSpread: 2.5, buySpread: 2.5 },
-    minTradeAmount: "0.01克起",
-    spreadNote: "约5.0元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-  {
-    instrumentId: "cmbc-acc-gold",
-    bankName: "民生银行",
-    bankCode: "CMBC",
-    product: "民生积存金",
-    huimiaoBankType: null,
-    huimiaoCurrencyType: null,
-    jdjrSku: "P005",
-    jdjrApi: "v1",
-    spreadFallback: { sellSpread: 2.0, buySpread: 2.0 },
-    minTradeAmount: "0.1克起",
-    spreadNote: "约4.0元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-  {
-    instrumentId: "cib-acc-gold",
-    bankName: "兴业银行",
-    bankCode: "CIB",
-    product: "兴业积存金",
-    huimiaoBankType: "CIB",
-    huimiaoCurrencyType: "Gold",
-    jdjrSku: null,
-    spreadFallback: { sellSpread: 1.9, buySpread: 1.9 },
-    minTradeAmount: "0.1克起",
-    spreadNote: "约3.8元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-  {
-    instrumentId: "cgb-acc-gold",
-    bankName: "广发银行",
-    bankCode: "CGB",
-    product: "广发积存金",
-    huimiaoBankType: null,
-    huimiaoCurrencyType: null,
-    jdjrSku: null,
-    jdjrName: "广发积存金",
-    spreadFallback: { sellSpread: 1.75, buySpread: 1.75 },
-    minTradeAmount: "0.1克起",
-    spreadNote: "约3.5元/克（实测）",
-    tradingHours: "以银行App官方公告为准",
-  },
-];
+// 产品清单已抽到 ./bankProducts（纯数据，零 node:* 依赖），供客户端组件复用。
+export { BANK_GOLD_PRODUCTS };
 
 // ==================== 请求头 ====================
 

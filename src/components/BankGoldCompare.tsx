@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Quote } from "@/lib/types";
-import { BANK_GOLD_PRODUCTS } from "@/lib/bankGold";
+import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
 import { bankSourceBadge, isBankReal, fmtPrice, fmtTime } from "@/lib/display";
 
 type SortKey = "buy" | "spread";
