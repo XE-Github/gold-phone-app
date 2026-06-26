@@ -1,18 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Quote, QuotesPayload, BankGoldPayload } from "@/lib/types";
+import type { Quote, BankGoldPayload } from "@/lib/types";
 import { HeroPrice } from "@/components/HeroPrice";
 import { TrendChart } from "@/components/TrendChart";
 import { PriceAlertCard } from "@/components/PriceAlertCard";
 import { AlertToast } from "@/components/AlertToast";
 import { BankGoldCompare } from "@/components/BankGoldCompare";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
+import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
 
-const QUOTES_INTERVAL = 5000; // 行情 5s 轮询
-const BANK_INTERVAL = 15000; // 积存金 15s 轮询
-
-type Status = "connecting" | "live" | "error";
+const BANK_INTERVAL = 15000; // 积存金 15s 轮询（慢数据，不走 SSE）
 
 function toMap(quotes: Quote[]): Map<string, Quote> {
   const m = new Map<string, Quote>();
@@ -27,7 +25,7 @@ export default function Home() {
     realCount: 0,
     total: 0,
   });
-  const [status, setStatus] = useState<Status>("connecting");
+  const [status, setStatus] = useState<StreamStatus>("connecting");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const mounted = useRef(true);
@@ -43,20 +41,6 @@ export default function Home() {
 
   const alerts = usePriceAlerts(priceById);
 
-  const loadQuotes = useCallback(async () => {
-    try {
-      const res = await fetch("/api/quotes", { cache: "no-store" });
-      const data = (await res.json()) as QuotesPayload;
-      if (!mounted.current) return;
-      setQuotes(toMap(data.quotes));
-      setWarnings(data.warnings ?? []);
-      setStatus(data.quotes.length > 0 ? "live" : "error");
-      setLastUpdate(data.serverTime);
-    } catch {
-      if (mounted.current) setStatus("error");
-    }
-  }, []);
-
   const loadBank = useCallback(async () => {
     try {
       const res = await fetch("/api/bank-gold", { cache: "no-store" });
@@ -71,20 +55,34 @@ export default function Home() {
 
   useEffect(() => {
     mounted.current = true;
-    // queueMicrotask：把首帧抓取推迟出 effect 同步体（异步 setState 仍在 await 后），
-    // 满足 react-hooks/set-state-in-effect。
+
+    // 行情：SSE 推送（后端 2s 抓一次，抓到即推；断线自动降级 5s 轮询）。
+    // queueMicrotask：把订阅/首帧抓取推迟出 effect 同步体，满足 react-hooks/set-state-in-effect。
+    let unsubscribe: (() => void) | null = null;
     queueMicrotask(() => {
-      void loadQuotes();
+      unsubscribe = subscribeQuotes(
+        (data) => {
+          if (!mounted.current) return;
+          setQuotes(toMap(data.quotes));
+          setWarnings(data.warnings ?? []);
+          setLastUpdate(data.serverTime);
+        },
+        (s) => {
+          if (mounted.current) setStatus(s);
+        },
+      );
       void loadBank();
     });
-    const q = window.setInterval(loadQuotes, QUOTES_INTERVAL);
+
+    // 积存金：慢数据，独立 15s 轮询（不走 SSE）。
     const b = window.setInterval(loadBank, BANK_INTERVAL);
+
     return () => {
       mounted.current = false;
-      window.clearInterval(q);
+      unsubscribe?.();
       window.clearInterval(b);
     };
-  }, [loadQuotes, loadBank]);
+  }, [loadBank]);
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-md px-3 pb-16 pt-3">
@@ -125,29 +123,21 @@ export default function Home() {
           total={bankMeta.total}
         />
       </div>
-
-      <footer className="mt-5 px-1 text-[10px] leading-relaxed text-slate-600">
-        <p>
-          数据来源：新浪财经、Gold-API、上海黄金交易所、各银行官网/京东金融平台/汇喵聚合。行情可能延时，
-          人民币金价为理论换算值（非成交价），积存金「估算」项已明确标注。本页为学习辅助工具，非投资建议，投资有风险。
-        </p>
-        <p className="mt-1">独立隔离应用，数据自行抓取，不依赖主项目。</p>
-      </footer>
     </main>
   );
 }
 
-function StatusPill({ status, lastUpdate }: { status: Status; lastUpdate: number | null }) {
+function StatusPill({ status, lastUpdate }: { status: StreamStatus; lastUpdate: number | null }) {
   const map = {
     connecting: { dot: "bg-amber-400", text: "连接中", cls: "text-amber-300" },
-    live: { dot: "bg-emerald-400", text: "实时", cls: "text-emerald-300" },
-    error: { dot: "bg-rose-400", text: "数据异常", cls: "text-rose-300" },
+    connected: { dot: "bg-emerald-400", text: "实时推送", cls: "text-emerald-300" },
+    polling: { dot: "bg-sky-400", text: "轮询中", cls: "text-sky-300" },
   } as const;
   const s = map[status];
   return (
     <div className="flex flex-col items-end">
       <div className="flex items-center gap-1.5">
-        <span className={`h-2 w-2 rounded-full ${s.dot} ${status === "live" ? "animate-pulse" : ""}`} />
+        <span className={`h-2 w-2 rounded-full ${s.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
         <span className={`text-xs ${s.cls}`}>{s.text}</span>
       </div>
       {lastUpdate && (
