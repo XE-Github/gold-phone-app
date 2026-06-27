@@ -52,7 +52,10 @@ jobs:
 
       - name: Gradle assembleDebug
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        # chmod 兜底：gradlew 在 Windows 提交时可能丢失可执行位（已同时用 git update-index 标记）
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
 
       - name: Locate apk
         id: apk
