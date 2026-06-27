@@ -11,6 +11,7 @@ import { UpdateCard } from "@/components/UpdateCard";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
+import { DiagPanel } from "@/components/DiagPanel";
 
 // 积存金标的 id 集合：SSE 把行情+积存金合并推送，前端按 id 归属拆回两份。
 const BANK_IDS = new Set(BANK_GOLD_PRODUCTS.map((p) => p.instrumentId));
@@ -31,6 +32,8 @@ export default function Home() {
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
+  // 装机诊断：App 内静态导出子路由跳不动，故改为同页全屏弹层打开诊断面板。
+  const [showDiag, setShowDiag] = useState(false);
   const mounted = useRef(true);
 
   // 价格提醒：监控行情 + 银行积存金价格表（取 price）。
@@ -125,12 +128,13 @@ export default function Home() {
       <footer className="mt-6 text-center text-[11px] leading-relaxed text-slate-600">
         <p>学习辅助工具，非投资建议，投资有风险。</p>
         <div className="mt-2 flex items-center justify-center gap-2">
-          <a
-            href="/diag"
-            className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400"
+          {/* App 内不跳 /diag 路由(静态导出子路由在 Capacitor 打不开)，改为同页弹层 */}
+          <button
+            onClick={() => setShowDiag(true)}
+            className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400 active:bg-white/5"
           >
             装机诊断
-          </a>
+          </button>
           <a
             href="/notify-check"
             className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400"
@@ -139,6 +143,13 @@ export default function Home() {
           </a>
         </div>
       </footer>
+
+      {/* 装机诊断全屏弹层：固定定位盖满视口，内部独立滚动；onClose 让面板进入弹层模式并显示关闭条 */}
+      {showDiag && (
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-950">
+          <DiagPanel onClose={() => setShowDiag(false)} />
+        </div>
+      )}
     </main>
   );
 }
