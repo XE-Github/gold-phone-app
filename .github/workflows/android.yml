@@ -25,7 +25,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Capacitor 8 CLI 要求 Node >=22（本地用 24 验证过）
+          node-version: "22"
           cache: "npm"
 
       - name: Setup Java
