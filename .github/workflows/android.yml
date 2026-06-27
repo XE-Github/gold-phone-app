@@ -1,0 +1,74 @@
+name: Android Build
+
+# 云端打 apk（本机无安卓工具链，故 CI 构建）。GitHub 仅打包+发布，不托管任何运行时。
+#   - push 到 main / 手动触发：构建 debug apk 并作为 artifact 上传
+#   - 打 tag（v*）：构建后把 apk 发布到 GitHub Releases（供 App 内 OTA 拉取）
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 发布 Release 需要
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: . # 仓库根即 PhoneApp（独立仓库）
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bundle embedded Node (main.js)
+        run: npm run bundle:node
+
+      - name: Build static frontend (out/)
+        run: npm run build
+
+      - name: Capacitor sync (web → android assets)
+        run: npx cap sync android
+
+      - name: Gradle assembleDebug
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Locate apk
+        id: apk
+        run: |
+          path=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -1)
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "Found apk: $path"
+
+      - name: Upload apk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gold-phone-debug-apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Publish to Releases (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.path }}
+          generate_release_notes: true

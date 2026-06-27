@@ -27,6 +27,7 @@ import {
 } from "lightweight-charts";
 import type { Quote } from "@/lib/types";
 import { nowUtcMinute } from "@/lib/chartTime";
+import { requestRoute } from "@/lib/apiBase";
 
 /** 时间轴中文标签（真实 UTC，用 getUTC* 取分量） */
 function formatCN(time: Time, tickMarkType: TickMarkType): string | null {
@@ -220,12 +221,7 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
     async function load(showLoading: boolean) {
       if (showLoading) setLoading(true);
       try {
-        const res = await fetch("/api/history", { cache: "no-store" });
-        if (cancelled || isDisposed.current || !res.ok) return;
-        const json = (await res.json()) as {
-          series: Record<string, { time: number; value: number }[]>;
-          sources: Record<string, string>;
-        };
+        const json = await requestRoute("/api/history");
         if (cancelled || isDisposed.current) return;
 
         let anyData = false;

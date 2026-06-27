@@ -1,0 +1,7 @@
+{
+  "name": "gold-embedded-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "内嵌 Node 数据服务（由 @choreruiz/capacitor-node-js 在 App 内运行）。main.js 由 esbuild 从 src/server+src/lib 打包生成，勿手改。",
+  "main": "main.js"
+}

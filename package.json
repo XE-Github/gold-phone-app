@@ -5,11 +5,18 @@
   "description": "独立隔离的黄金看板手机网页版（实时金价+提醒、银行积存金对比）。与主项目完全解耦，自带数据抓取。",
   "scripts": {
     "dev": "next dev -p 3100 --webpack",
+    "dev:node": "node scripts/dev-node.mjs",
     "build": "next build --webpack",
     "start": "next start -p 3100",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "bundle:node": "node scripts/bundle-node.mjs",
+    "cap:sync": "npm run bundle:node && npm run build && npx cap sync android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@choreruiz/capacitor-node-js": "^1.0.2",
     "lightweight-charts": "^5.2.0",
     "next": "^16.0.10",
     "react": "^19.2.1",
@@ -21,6 +28,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.25.0",
     "eslint": "^9.39.1",
     "eslint-config-next": "^16.0.10",
     "tailwindcss": "^4.1.17",
