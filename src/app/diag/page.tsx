@@ -20,9 +20,6 @@ import {
 import { checkForUpdate, currentVersion, canInstallUpdate } from "@/lib/ota";
 import type { Quote } from "@/lib/types";
 
-// 仓库「新建 Issue」页（与 ota.ts 的 REPO 同仓）。用户登录后预填提交，维护者用 gh 读取。
-const ISSUE_NEW_URL = "https://github.com/XE-Github/gold-phone-app/issues/new";
-
 // ── 运行环境探测（不静态依赖 Capacitor，运行期读 window） ──
 function probeEnv() {
   const cap =
@@ -298,10 +295,8 @@ export default function Diag() {
     }
   }
 
-  // 把整页探测结果汇成一段结构化纯文本，供一键复制后粘贴回报。
-  // opts.withLog=false 时省略逐行操作日志（用于开 Issue：GitHub 预填 URL 有 ~8KB 上限，去日志更稳）。
-  const buildReport = useCallback((opts?: { withLog?: boolean }): string => {
-    const withLog = opts?.withLog ?? true;
+  // 把整页探测结果汇成一段结构化纯文本，供复制后粘贴回报。
+  const buildReport = useCallback((): string => {
     const lines: string[] = [];
     const yn = (b: boolean | null | undefined) =>
       b === true ? "✓" : b === false ? "✗" : "·";
@@ -376,8 +371,8 @@ export default function Diag() {
     lines.push(`支持通知: ${notificationSupported()}`);
     if (ota) lines.push(`OTA 检查: ${ota}`);
 
-    // 操作日志（最新在上，原样附）。开 Issue 版省略以控 URL 长度。
-    if (withLog && log.length > 0) {
+    // 操作日志（最新在上，原样附）。
+    if (log.length > 0) {
       lines.push("");
       lines.push("【操作日志(最新在上)】");
       for (const l of log) lines.push(l);
@@ -388,51 +383,27 @@ export default function Diag() {
     return lines.join("\n");
   }, [env, quotesR, bankR, historyR, streamR, perm, ota, log]);
 
+  // 纯 App 内完成：永远把全文渲染进页面文本框（不依赖剪贴板 API 是否可用），
+  // 同时尽力写一次剪贴板作为加成。这样无论 WebView 剪贴板行不行，用户都能拿到全文。
   const onCopyReport = useCallback(async () => {
     const text = buildReport();
+    setReportText(text); // 关键：先无条件把全文显示出来
+    let clipboardOk = false;
     try {
-      // WebView(secure context) 下 navigator.clipboard 通常可用；不行则走兜底
       if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
-        setCopyHint("已复制到剪贴板 ✅ 直接粘贴发回即可");
-        setReportText(""); // 复制成功就不必显示兜底框
-        append("一键复制诊断 → 成功（clipboard）");
-        return;
+        clipboardOk = true;
       }
-      throw new Error("clipboard API 不可用");
-    } catch (e) {
-      // 兜底：把全文显示在只读 textarea，用户长按全选复制
-      setReportText(text);
-      setCopyHint("自动复制不可用，已在下方显示全文，请长按框内文字全选复制");
-      append(`一键复制诊断 → 走兜底框（${e instanceof Error ? e.message : String(e)}）`);
+    } catch {
+      clipboardOk = false;
     }
+    setCopyHint(
+      clipboardOk
+        ? "已复制到剪贴板 ✅ 全文也显示在下方框里。粘贴(或长按框内全选复制)发我即可。"
+        : "全文已显示在下方框里。长按框内文字 → 全选 → 复制，发我即可。",
+    );
+    append(`生成诊断报告 → ${clipboardOk ? "已写剪贴板 + 显示全文" : "显示全文(剪贴板不可用)"}`);
   }, [buildReport, append]);
-
-  // 上传反馈：拉起手机浏览器打开仓库「新建 Issue」页，标题+正文(诊断全文)已预填。
-  // 用户登录 GitHub 点 Submit 即可；维护者用 gh issue view 读取，无需用户复制粘贴。
-  // 不在 App 内放 token、不自动联网上传——上传由用户的 GitHub 登录态完成，符合数据闭环+隔离约束。
-  const onOpenIssue = useCallback(() => {
-    // 去日志精简版，控制在 GitHub 预填 URL ~8KB 上限内
-    const body = buildReport({ withLog: false });
-    const title = `装机诊断反馈 v${env?.version ?? currentVersion()}`;
-    const url =
-      `${ISSUE_NEW_URL}?title=${encodeURIComponent(title)}` +
-      `&body=${encodeURIComponent("```\n" + body + "\n```")}` +
-      `&labels=${encodeURIComponent("diag-feedback")}`;
-    // 预填 URL 过长时 GitHub 可能截断正文 → 同时把完整版复制进剪贴板兜底
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(buildReport()).catch(() => {});
-    }
-    if (url.length > 7800) {
-      setCopyHint(
-        "诊断内容较长，开 Issue 的预填可能被截断。已把【完整版】复制到剪贴板，提交后若正文不全，请在 Issue 里粘贴补全。",
-      );
-    } else {
-      setCopyHint("已拉起浏览器开 Issue（正文已预填）。登录 GitHub 点 Submit 即可，无需复制。");
-    }
-    append(`上传反馈 → 打开新建 Issue 页（URL ${url.length} 字符）`);
-    if (typeof window !== "undefined") window.open(url, "_blank");
-  }, [buildReport, env, append]);
 
   const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes) : null;
 
@@ -440,37 +411,34 @@ export default function Diag() {
     <main className="mx-auto min-h-dvh w-full max-w-md px-4 pb-16 pt-4 text-white">
       <h1 className="text-lg font-bold">装机诊断 · /diag</h1>
       <p className="mt-1 text-[11px] text-slate-500">
-        一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点「上传反馈」开 Issue（最省事），或「一键复制」自行粘贴。
+        一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点下方按钮生成全文，复制发回即可。
       </p>
 
-      {/* 反馈两条路：上传反馈(开 Issue，预填诊断全文，登录点 Submit 即可)；一键复制(纯文本，兜底)。 */}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          onClick={onOpenIssue}
-          disabled={running}
-          className="min-h-[44px] rounded-xl bg-amber-500 px-3 text-sm font-semibold text-slate-950 active:bg-amber-400 disabled:opacity-50"
-        >
-          {running ? "探测中…" : "📮 上传反馈"}
-        </button>
-        <button
-          onClick={() => void onCopyReport()}
-          disabled={running}
-          className="min-h-[44px] rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 text-sm font-semibold text-amber-200 active:bg-amber-500/20 disabled:opacity-50"
-        >
-          {running ? "探测中…" : "📋 一键复制"}
-        </button>
-      </div>
+      {/* 生成诊断报告：全在 App 内——点一下即把全文渲染进下方文本框(不依赖剪贴板)，并尽力写一次剪贴板。 */}
+      <button
+        onClick={() => void onCopyReport()}
+        disabled={running}
+        className="mt-3 min-h-[44px] w-full rounded-xl bg-amber-500 px-4 text-sm font-semibold text-slate-950 active:bg-amber-400 disabled:opacity-50"
+      >
+        {running ? "探测中…请稍候" : "📋 生成诊断报告 · 复制"}
+      </button>
       {copyHint && (
         <p className="mt-2 text-[11px] leading-relaxed text-emerald-300">{copyHint}</p>
       )}
       {reportText && (
-        <textarea
-          readOnly
-          value={reportText}
-          onFocus={(e) => e.currentTarget.select()}
-          rows={14}
-          className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-200"
-        />
+        <div className="mt-2">
+          <textarea
+            readOnly
+            value={reportText}
+            onFocus={(e) => e.currentTarget.select()}
+            onClick={(e) => e.currentTarget.select()}
+            rows={18}
+            className="w-full select-all rounded-xl border border-amber-400/30 bg-slate-950/80 p-2 text-[11px] leading-relaxed text-slate-200"
+          />
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+            点框内任意处即全选；长按 → 复制(或顶部弹出的「全选/复制」)。把这段发我即可。
+          </p>
+        </div>
       )}
 
       {/* ① 运行环境 */}
