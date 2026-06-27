@@ -20,6 +20,9 @@ import {
 import { checkForUpdate, currentVersion, canInstallUpdate } from "@/lib/ota";
 import type { Quote } from "@/lib/types";
 
+// 仓库「新建 Issue」页（与 ota.ts 的 REPO 同仓）。用户登录后预填提交，维护者用 gh 读取。
+const ISSUE_NEW_URL = "https://github.com/XE-Github/gold-phone-app/issues/new";
+
 // ── 运行环境探测（不静态依赖 Capacitor，运行期读 window） ──
 function probeEnv() {
   const cap =
@@ -296,7 +299,9 @@ export default function Diag() {
   }
 
   // 把整页探测结果汇成一段结构化纯文本，供一键复制后粘贴回报。
-  const buildReport = useCallback((): string => {
+  // opts.withLog=false 时省略逐行操作日志（用于开 Issue：GitHub 预填 URL 有 ~8KB 上限，去日志更稳）。
+  const buildReport = useCallback((opts?: { withLog?: boolean }): string => {
+    const withLog = opts?.withLog ?? true;
     const lines: string[] = [];
     const yn = (b: boolean | null | undefined) =>
       b === true ? "✓" : b === false ? "✗" : "·";
@@ -371,8 +376,8 @@ export default function Diag() {
     lines.push(`支持通知: ${notificationSupported()}`);
     if (ota) lines.push(`OTA 检查: ${ota}`);
 
-    // 操作日志（最新在上，原样附）
-    if (log.length > 0) {
+    // 操作日志（最新在上，原样附）。开 Issue 版省略以控 URL 长度。
+    if (withLog && log.length > 0) {
       lines.push("");
       lines.push("【操作日志(最新在上)】");
       for (const l of log) lines.push(l);
@@ -403,23 +408,58 @@ export default function Diag() {
     }
   }, [buildReport, append]);
 
+  // 上传反馈：拉起手机浏览器打开仓库「新建 Issue」页，标题+正文(诊断全文)已预填。
+  // 用户登录 GitHub 点 Submit 即可；维护者用 gh issue view 读取，无需用户复制粘贴。
+  // 不在 App 内放 token、不自动联网上传——上传由用户的 GitHub 登录态完成，符合数据闭环+隔离约束。
+  const onOpenIssue = useCallback(() => {
+    // 去日志精简版，控制在 GitHub 预填 URL ~8KB 上限内
+    const body = buildReport({ withLog: false });
+    const title = `装机诊断反馈 v${env?.version ?? currentVersion()}`;
+    const url =
+      `${ISSUE_NEW_URL}?title=${encodeURIComponent(title)}` +
+      `&body=${encodeURIComponent("```\n" + body + "\n```")}` +
+      `&labels=${encodeURIComponent("diag-feedback")}`;
+    // 预填 URL 过长时 GitHub 可能截断正文 → 同时把完整版复制进剪贴板兜底
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(buildReport()).catch(() => {});
+    }
+    if (url.length > 7800) {
+      setCopyHint(
+        "诊断内容较长，开 Issue 的预填可能被截断。已把【完整版】复制到剪贴板，提交后若正文不全，请在 Issue 里粘贴补全。",
+      );
+    } else {
+      setCopyHint("已拉起浏览器开 Issue（正文已预填）。登录 GitHub 点 Submit 即可，无需复制。");
+    }
+    append(`上传反馈 → 打开新建 Issue 页（URL ${url.length} 字符）`);
+    if (typeof window !== "undefined") window.open(url, "_blank");
+  }, [buildReport, env, append]);
+
   const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes) : null;
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-md px-4 pb-16 pt-4 text-white">
       <h1 className="text-lg font-bold">装机诊断 · /diag</h1>
       <p className="mt-1 text-[11px] text-slate-500">
-        一眼看清数据源、工行/建行直连、通知、升级是否正常。点下方「一键复制」把结果粘贴发回即可。
+        一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点「上传反馈」开 Issue（最省事），或「一键复制」自行粘贴。
       </p>
 
-      {/* 一键复制全部诊断：汇成纯文本，省去截图。优先 clipboard，失败走下方兜底框。 */}
-      <button
-        onClick={() => void onCopyReport()}
-        disabled={running}
-        className="mt-3 min-h-[44px] w-full rounded-xl bg-amber-500 px-4 text-sm font-semibold text-slate-950 active:bg-amber-400 disabled:opacity-50"
-      >
-        {running ? "探测中…请稍候" : "📋 一键复制全部诊断"}
-      </button>
+      {/* 反馈两条路：上传反馈(开 Issue，预填诊断全文，登录点 Submit 即可)；一键复制(纯文本，兜底)。 */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          onClick={onOpenIssue}
+          disabled={running}
+          className="min-h-[44px] rounded-xl bg-amber-500 px-3 text-sm font-semibold text-slate-950 active:bg-amber-400 disabled:opacity-50"
+        >
+          {running ? "探测中…" : "📮 上传反馈"}
+        </button>
+        <button
+          onClick={() => void onCopyReport()}
+          disabled={running}
+          className="min-h-[44px] rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 text-sm font-semibold text-amber-200 active:bg-amber-500/20 disabled:opacity-50"
+        >
+          {running ? "探测中…" : "📋 一键复制"}
+        </button>
+      </div>
       {copyHint && (
         <p className="mt-2 text-[11px] leading-relaxed text-emerald-300">{copyHint}</p>
       )}
