@@ -16,6 +16,8 @@
     "@capacitor/android": "^8.4.1",
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/filesystem": "^7.1.8",
+    "@capacitor/local-notifications": "^7.0.6",
     "@choreruiz/capacitor-node-js": "^1.0.2",
     "lightweight-charts": "^5.2.0",
     "next": "^16.0.10",

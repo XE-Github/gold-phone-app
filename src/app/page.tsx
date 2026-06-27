@@ -7,6 +7,7 @@ import { TrendChart } from "@/components/TrendChart";
 import { PriceAlertCard } from "@/components/PriceAlertCard";
 import { AlertToast } from "@/components/AlertToast";
 import { BankGoldCompare } from "@/components/BankGoldCompare";
+import { UpdateCard } from "@/components/UpdateCard";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
@@ -118,6 +119,7 @@ export default function Home() {
           realCount={bankMeta.realCount}
           total={bankMeta.total}
         />
+        <UpdateCard />
       </div>
     </main>
   );

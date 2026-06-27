@@ -1,5 +1,21 @@
 apply plugin: 'com.android.application'
 
+// 版本号单一事实源：PhoneApp/package.json 的 version（同源注入前端 NEXT_PUBLIC_APP_VERSION）。
+// 升级只改 package.json 一处；versionCode 由版本号派生，保证随 version 单调递增。
+def pkgVersion = "0.0.0"
+try {
+    def pkgFile = file("${rootDir}/../package.json")
+    def m = (pkgFile.text =~ /"version"\s*:\s*"([^"]+)"/)
+    if (m.find()) { pkgVersion = m.group(1) }
+} catch (Exception e) {
+    logger.warn("读取 package.json version 失败，回退 0.0.0: ${e.message}")
+}
+def verParts = pkgVersion.split(/[.\-+]/)
+def vMajor = verParts.length > 0 ? (verParts[0].isInteger() ? verParts[0].toInteger() : 0) : 0
+def vMinor = verParts.length > 1 ? (verParts[1].isInteger() ? verParts[1].toInteger() : 0) : 0
+def vPatch = verParts.length > 2 ? (verParts[2].isInteger() ? verParts[2].toInteger() : 0) : 0
+def derivedVersionCode = vMajor * 10000 + vMinor * 100 + vPatch
+
 android {
     namespace = "com.xegithub.goldphone"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +23,8 @@ android {
         applicationId "com.xegithub.goldphone"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode derivedVersionCode > 0 ? derivedVersionCode : 1
+        versionName pkgVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

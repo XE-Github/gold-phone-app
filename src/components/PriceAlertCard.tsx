@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AlertDirection, AlertRule } from "@/lib/usePriceAlerts";
 import { ALERT_METAS, metaFor, fmtPrice } from "@/lib/display";
-import { notificationPermission } from "@/lib/notify";
+import { notificationPermission, isNativeNotify } from "@/lib/notify";
 
 const ALERTABLE = ALERT_METAS;
 
@@ -30,9 +30,13 @@ export function PriceAlertCard({
   const [sound, setSound] = useState(true);
   const [error, setError] = useState("");
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("unsupported");
+  const [native, setNative] = useState(false);
 
   useEffect(() => {
-    queueMicrotask(() => setPerm(notificationPermission()));
+    queueMicrotask(() => {
+      setNative(isNativeNotify());
+      setPerm(notificationPermission());
+    });
   }, []);
 
   const currentPrice = priceById.get(instrumentId);
@@ -42,11 +46,14 @@ export function PriceAlertCard({
     setPerm(result as NotificationPermission | "unsupported");
   }
 
+  // 原生壳与 Web 文案分流：原生不提「浏览器」，denied 也可在系统设置里改回。
   const notifyBtn = {
     granted: { text: "🔔 系统通知已开启", cls: "bg-emerald-500/15 text-emerald-300" },
-    denied: { text: "通知被拒绝（去浏览器设置开启）", cls: "bg-rose-500/15 text-rose-300" },
+    denied: native
+      ? { text: "通知被关闭（去系统设置开启）", cls: "bg-rose-500/15 text-rose-300" }
+      : { text: "通知被拒绝（去浏览器设置开启）", cls: "bg-rose-500/15 text-rose-300" },
     default: { text: "开启系统通知", cls: "bg-amber-500/20 text-amber-200" },
-    unsupported: { text: "浏览器不支持通知", cls: "bg-slate-700/40 text-slate-400" },
+    unsupported: { text: native ? "通知不可用" : "浏览器不支持通知", cls: "bg-slate-700/40 text-slate-400" },
   }[perm];
 
   function submit() {
@@ -73,6 +80,14 @@ export function PriceAlertCard({
           {notifyBtn.text}
         </button>
       </div>
+
+      {/* 原生壳的「已解决 denied 死结」说明，仅装机时显示 */}
+      {native && (
+        <p className="mt-2 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.07] p-2.5 text-[11px] leading-relaxed text-emerald-100/85">
+          ✅ App 版用<b>系统原生通知</b>，权限弹窗由系统弹出，不再像网页那样「拒绝一次就永久弹不出来」。
+          若曾在系统里关掉，去「系统设置 → 应用 → 黄金看板 → 通知」开回即可。
+        </p>
+      )}
 
       {/* 新建规则 */}
       <div className="mt-3 space-y-2.5">
@@ -127,8 +142,8 @@ export function PriceAlertCard({
           触发时播放提示音（需先与页面交互一次浏览器才允许出声）
         </label>
 
-        {/* 被拒绝时给可操作步骤：denied 后浏览器不再弹请求框，必须手动到站点设置改回 */}
-        {perm === "denied" && (
+        {/* 被拒绝时给可操作步骤：denied 后浏览器不再弹请求框，必须手动到站点设置改回（仅 Web） */}
+        {!native && perm === "denied" && (
           <div className="rounded-xl border border-rose-400/20 bg-rose-500/[0.08] p-2.5 text-[11px] leading-relaxed text-rose-100/90">
             <p className="font-semibold text-rose-200">通知已被浏览器屏蔽，按钮无法再弹出请求框</p>
             <p className="mt-1 text-rose-100/80">
@@ -138,15 +153,23 @@ export function PriceAlertCard({
           </div>
         )}
 
-        <p className="text-[10px] leading-relaxed text-slate-500">
-          ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
-          若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
-          排查通知可打开诊断页{" "}
-          <a href="/notify-check" className="text-amber-300 underline">
-            /notify-check
-          </a>
-          。
-        </p>
+        {/* 提示文案：原生壳与 Web 分流（原生无浏览器/添加主屏概念） */}
+        {native ? (
+          <p className="text-[10px] leading-relaxed text-slate-500">
+            ⚠️ 提醒在 App 打开/前台时监控；首次需点上方「开启系统通知」并在系统弹窗允许。
+            后台被系统杀死后会停止监控，可在系统设置里给本 App「免后台限制/自启动」缓解。
+          </p>
+        ) : (
+          <p className="text-[10px] leading-relaxed text-slate-500">
+            ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
+            若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
+            排查通知可打开诊断页{" "}
+            <a href="/notify-check" className="text-amber-300 underline">
+              /notify-check
+            </a>
+            。
+          </p>
+        )}
         {error && <p className="text-xs text-rose-400">{error}</p>}
       </div>
 
