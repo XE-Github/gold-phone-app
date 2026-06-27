@@ -123,6 +123,10 @@ export default function Diag() {
   const [log, setLog] = useState<string[]>([]);
   const [perm, setPerm] = useState<string>("");
   const [ota, setOta] = useState<string>("");
+  // 一键复制：把整页探测结果汇成纯文本。copyHint 提示复制成败；
+  // reportText 非空时在页面渲染一个只读 textarea 作兜底（clipboard API 不可用时长按全选复制）。
+  const [copyHint, setCopyHint] = useState<string>("");
+  const [reportText, setReportText] = useState<string>("");
   // 推流探测：主页用 SSE/IPC 流取数，与 requestRoute 是不同通道。
   // 这里订阅 ~8s，看能否收到至少一帧 + 状态变迁，用于区分「传输层 vs 上游抓取」。
   const [streamR, setStreamR] = useState<{
@@ -291,14 +295,143 @@ export default function Diag() {
     }
   }
 
+  // 把整页探测结果汇成一段结构化纯文本，供一键复制后粘贴回报。
+  const buildReport = useCallback((): string => {
+    const lines: string[] = [];
+    const yn = (b: boolean | null | undefined) =>
+      b === true ? "✓" : b === false ? "✗" : "·";
+    lines.push("===== PhoneApp 装机诊断 /diag =====");
+
+    // ① 运行环境
+    lines.push("");
+    lines.push("【① 运行环境】");
+    if (env) {
+      lines.push(`原生壳(apk): ${env.native ? "是" : "否(浏览器)"}`);
+      lines.push(`平台: ${env.platform}`);
+      lines.push(`取数链路: ${env.transport}`);
+      lines.push(`内嵌Node插件: ${yn(env.hasNodePlugin)} ${env.hasNodePlugin ? "在场" : "不在场"}`);
+      lines.push(`通知插件: ${yn(env.hasLocalNotif)} / 文件系统: ${yn(env.hasFilesystem)} / 安装器: ${yn(env.hasApkInstaller)}`);
+      lines.push(`App版本: v${env.version}`);
+    } else {
+      lines.push("(环境未读取)");
+    }
+
+    // ② 数据源
+    const fmt = (r: RouteResult | null) =>
+      !r ? "未探测" : r.ok ? `成功 ${r.count}条 / ${r.ms}ms` : `失败 ${r.ms}ms：${r.error ?? ""}`;
+    lines.push("");
+    lines.push("【② 数据源】");
+    lines.push(`行情 quotes: ${fmt(quotesR)}`);
+    lines.push(`积存金 bank-gold: ${fmt(bankR)}`);
+    lines.push(`历史 history: ${fmt(historyR)}`);
+
+    // 关键标的逐项值（区分全挂 vs 部分挂的核心证据）
+    if (quotesR?.ok) {
+      lines.push("");
+      lines.push("关键标的实际值:");
+      for (const row of instrumentRows(quotesR.quotes)) {
+        lines.push(`  ${yn(row.has)} ${row.label}: ${row.value}${row.source ? `  [${row.source}]` : ""}`);
+      }
+    }
+    // 行情 warnings 原文（定位「新浪主源不可用」是单挂还是连国际源也挂）
+    if (quotesR?.ok && quotesR.warnings.length > 0) {
+      lines.push("");
+      lines.push("行情警告原文:");
+      for (const w of quotesR.warnings) lines.push(`  · ${w}`);
+    }
+    if (bankR?.ok && bankR.warnings.length > 0) {
+      lines.push("");
+      lines.push("积存金警告原文:");
+      for (const w of bankR.warnings) lines.push(`  · ${w}`);
+    }
+
+    // ②b 推流
+    lines.push("");
+    lines.push("【②b 推流通道】");
+    if (!streamR) lines.push("未探测");
+    else if (!streamR.done) lines.push(`测试中(${streamR.status}，已收 ${streamR.frames} 帧)`);
+    else lines.push(streamR.frames > 0 ? `通：收到 ${streamR.frames} 帧(首帧 ${streamR.firstMs}ms)` : `未收到帧(状态 ${streamR.status})`);
+
+    // ③ 工行/建行 TLS
+    lines.push("");
+    lines.push("【③ 工行/建行老旧TLS直连】");
+    if (!bankR) lines.push("未探测");
+    else if (!bankR.ok) lines.push("积存金接口未成功，无法判定");
+    else {
+      const v = bankTlsVerdict(bankR.quotes);
+      lines.push(`${yn(v.icbcGood)} 工行: ${v.icbc}`);
+      lines.push(`${yn(v.ccbGood)} 建行: ${v.ccb}`);
+    }
+
+    // ④ 通知 / OTA
+    lines.push("");
+    lines.push("【④ 通知 / 升级】");
+    lines.push(`通知类型: ${isNativeNotify() ? "系统原生" : "Web/SW"}`);
+    lines.push(`通知权限: ${perm || notificationPermission()}`);
+    lines.push(`支持通知: ${notificationSupported()}`);
+    if (ota) lines.push(`OTA 检查: ${ota}`);
+
+    // 操作日志（最新在上，原样附）
+    if (log.length > 0) {
+      lines.push("");
+      lines.push("【操作日志(最新在上)】");
+      for (const l of log) lines.push(l);
+    }
+
+    lines.push("");
+    lines.push("===== 报告结束 =====");
+    return lines.join("\n");
+  }, [env, quotesR, bankR, historyR, streamR, perm, ota, log]);
+
+  const onCopyReport = useCallback(async () => {
+    const text = buildReport();
+    try {
+      // WebView(secure context) 下 navigator.clipboard 通常可用；不行则走兜底
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopyHint("已复制到剪贴板 ✅ 直接粘贴发回即可");
+        setReportText(""); // 复制成功就不必显示兜底框
+        append("一键复制诊断 → 成功（clipboard）");
+        return;
+      }
+      throw new Error("clipboard API 不可用");
+    } catch (e) {
+      // 兜底：把全文显示在只读 textarea，用户长按全选复制
+      setReportText(text);
+      setCopyHint("自动复制不可用，已在下方显示全文，请长按框内文字全选复制");
+      append(`一键复制诊断 → 走兜底框（${e instanceof Error ? e.message : String(e)}）`);
+    }
+  }, [buildReport, append]);
+
   const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes) : null;
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-md px-4 pb-16 pt-4 text-white">
       <h1 className="text-lg font-bold">装机诊断 · /diag</h1>
       <p className="mt-1 text-[11px] text-slate-500">
-        一眼看清数据源、工行/建行直连、通知、升级是否正常。把整页截图发回即可。
+        一眼看清数据源、工行/建行直连、通知、升级是否正常。点下方「一键复制」把结果粘贴发回即可。
       </p>
+
+      {/* 一键复制全部诊断：汇成纯文本，省去截图。优先 clipboard，失败走下方兜底框。 */}
+      <button
+        onClick={() => void onCopyReport()}
+        disabled={running}
+        className="mt-3 min-h-[44px] w-full rounded-xl bg-amber-500 px-4 text-sm font-semibold text-slate-950 active:bg-amber-400 disabled:opacity-50"
+      >
+        {running ? "探测中…请稍候" : "📋 一键复制全部诊断"}
+      </button>
+      {copyHint && (
+        <p className="mt-2 text-[11px] leading-relaxed text-emerald-300">{copyHint}</p>
+      )}
+      {reportText && (
+        <textarea
+          readOnly
+          value={reportText}
+          onFocus={(e) => e.currentTarget.select()}
+          rows={14}
+          className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-200"
+        />
+      )}
 
       {/* ① 运行环境 */}
       <h2 className="mt-4 mb-1 text-sm font-semibold text-amber-300">① 运行环境</h2>
