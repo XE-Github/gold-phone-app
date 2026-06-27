@@ -121,6 +121,15 @@ export default function Home() {
         />
         <UpdateCard />
       </div>
+
+      <footer className="mt-6 px-1 text-center text-[10px] leading-relaxed text-slate-600">
+        <p>学习辅助工具，非投资建议，投资有风险。</p>
+        <p className="mt-1">
+          <a href="/diag" className="text-slate-500 underline">装机诊断</a>
+          {" · "}
+          <a href="/notify-check" className="text-slate-500 underline">通知诊断</a>
+        </p>
+      </footer>
     </main>
   );
 }
