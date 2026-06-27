@@ -408,20 +408,30 @@ export default function Diag() {
   const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes) : null;
 
   return (
-    <main className="mx-auto min-h-dvh w-full max-w-md px-4 pb-16 pt-4 text-white">
+    <main
+      className="mx-auto min-h-dvh w-full max-w-md px-4 pb-16 text-white"
+      // 顶部留安全区(刘海/状态栏)+ 16px，防标题/按钮被遮挡
+      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)" }}
+    >
       <h1 className="text-lg font-bold">装机诊断 · /diag</h1>
       <p className="mt-1 text-[11px] text-slate-500">
         一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点下方按钮生成全文，复制发回即可。
       </p>
 
-      {/* 生成诊断报告：全在 App 内——点一下即把全文渲染进下方文本框(不依赖剪贴板)，并尽力写一次剪贴板。 */}
+      {/* 生成诊断报告：全在 App 内——点一下即把全文渲染进下方文本框(不依赖剪贴板)，并尽力写一次剪贴板。
+          注意：按钮【始终可点、文字不变】。探测中也能点(生成当前快照)，避免被「探测中」盖住让人误以为没按钮。
+          仅在按钮上方用一行小字提示是否还在探测。 */}
       <button
         onClick={() => void onCopyReport()}
-        disabled={running}
-        className="mt-3 min-h-[44px] w-full rounded-xl bg-amber-500 px-4 text-sm font-semibold text-slate-950 active:bg-amber-400 disabled:opacity-50"
+        className="mt-3 min-h-[44px] w-full rounded-xl bg-amber-500 px-4 text-sm font-semibold text-slate-950 active:bg-amber-400"
       >
-        {running ? "探测中…请稍候" : "📋 生成诊断报告 · 复制"}
+        📋 生成诊断报告 · 复制
       </button>
+      <p className="mt-1 text-[11px] text-slate-500">
+        {running
+          ? "正在探测…（最长约 8 秒）。可等跑完再点上面按钮，结果更全；现在点也能拿到当前快照。"
+          : "探测已完成。点上面按钮生成全文 → 复制发我。"}
+      </p>
       {copyHint && (
         <p className="mt-2 text-[11px] leading-relaxed text-emerald-300">{copyHint}</p>
       )}
