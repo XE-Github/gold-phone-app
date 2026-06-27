@@ -396,10 +396,10 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
 
       <div className="relative mt-2">
         {/* 轴单位提示 */}
-        <div className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[10px] font-medium text-sky-300/80">
+        <div className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[11px] font-medium text-sky-300/80">
           ¥/克
         </div>
-        <div className="pointer-events-none absolute right-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-300/80">
+        <div className="pointer-events-none absolute right-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[11px] font-medium text-amber-300/80">
           $/盎司
         </div>
         {loading && (

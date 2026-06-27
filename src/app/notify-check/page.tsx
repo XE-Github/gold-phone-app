@@ -169,7 +169,7 @@ export default function NotifyCheck() {
         </button>
         <button
           onClick={() => void refresh()}
-          className="min-h-[40px] rounded-xl border border-white/10 px-4 text-sm text-slate-300"
+          className="min-h-11 rounded-xl border border-white/10 px-4 text-sm text-slate-300"
         >
           刷新状态
         </button>

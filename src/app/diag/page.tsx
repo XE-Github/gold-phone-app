@@ -422,7 +422,7 @@ export default function Diag() {
           <>
             <Row k="工行官网直连" v={bankTls.icbc} good={bankTls.icbcGood} />
             <Row k="建行官网直连" v={bankTls.ccb} good={bankTls.ccbGood} />
-            <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
               成功=内嵌 Node 的老旧 TLS 握手通了，拿到官网真实价；失败=自动回退聚合源（数据仍在，仅这两家非直连），属预期降级。
             </p>
           </>

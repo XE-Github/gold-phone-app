@@ -55,7 +55,7 @@ export function AlertToast({
           </div>
           <button
             onClick={onDismiss}
-            className="min-h-[32px] shrink-0 rounded-lg bg-white/10 px-2 text-xs text-white"
+            className="min-h-9 shrink-0 rounded-lg bg-white/10 px-3 text-xs font-medium text-white"
             aria-label="关闭提示"
           >
             知道了
