@@ -11,15 +11,19 @@
 }
 
 html {
-  /* 移动端：禁止横向滚动、点击高亮，留出安全区 */
+  /* 移动端：禁止横向滚动、点击高亮、消除 300ms tap 延迟、防误触下拉刷新 */
   -webkit-tap-highlight-color: transparent;
   text-size-adjust: 100%;
   -webkit-text-size-adjust: 100%;
+  overflow-x: hidden; /* #1：杜绝任何子元素撑出视口造成的左右拖动 */
+  touch-action: manipulation; /* 去掉双击缩放带来的点击延迟 */
+  overscroll-behavior-y: contain; /* 防止边缘误触发系统下拉刷新/橡皮筋 */
 }
 
 body {
   margin: 0;
   min-height: 100dvh;
+  overflow-x: hidden; /* #1：双保险，body 自身也不允许横向溢出 */
   background:
     radial-gradient(circle at top left, rgba(245, 158, 11, 0.22), transparent 28rem),
     linear-gradient(160deg, #090d18 0%, #111827 52%, #172033 100%);
@@ -29,6 +33,15 @@ body {
     "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+
+  /* #2：保留上下滚动，但隐藏滚动条（webkit / firefox / 旧 Edge 三件套） */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* #2：隐藏 body 的 webkit 滚动条（移动 WebView 主滚动条） */
+body::-webkit-scrollbar {
+  display: none;
 }
 
 button,

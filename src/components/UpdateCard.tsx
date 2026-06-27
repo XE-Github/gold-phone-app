@@ -58,16 +58,16 @@ export function UpdateCard() {
   const cur = currentVersion();
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
+    <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
       <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-white">检查更新</h2>
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-white">检查更新</h2>
           <p className="text-[11px] tabular-nums text-slate-500">当前版本 v{cur}</p>
         </div>
         <button
           onClick={onCheck}
           disabled={phase === "checking" || phase === "downloading" || phase === "installing"}
-          className="min-h-[32px] rounded-lg bg-sky-500/15 px-3 text-xs text-sky-300 disabled:opacity-50"
+          className="min-h-9 shrink-0 rounded-lg bg-sky-500/15 px-3 text-[11px] font-medium text-sky-300 disabled:opacity-50"
         >
           {phase === "checking" ? "检查中…" : "检查更新"}
         </button>
@@ -82,14 +82,14 @@ export function UpdateCard() {
                 发现新版本 <b>{info.latestVersion}</b>（当前 v{info.currentVersion}）
               </p>
               {info.releaseNotes && (
-                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed text-emerald-100/70">
+                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-emerald-100/70">
                   {info.releaseNotes}
                 </pre>
               )}
               {info.canInstall && info.downloadUrl ? (
                 <button
                   onClick={onInstall}
-                  className="mt-2 min-h-[40px] w-full rounded-xl bg-amber-500 text-sm font-semibold text-slate-950 active:bg-amber-400"
+                  className="mt-2 min-h-11 w-full rounded-xl bg-amber-500 text-sm font-semibold text-slate-950 active:bg-amber-400"
                 >
                   下载并安装
                 </button>
@@ -98,7 +98,7 @@ export function UpdateCard() {
                   href={info.releasePageUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-2 block min-h-[40px] rounded-xl bg-sky-500/20 text-center text-sm leading-[40px] text-sky-200"
+                  className="mt-2 flex min-h-11 items-center justify-center rounded-xl bg-sky-500/20 text-center text-sm text-sky-200"
                 >
                   {info.downloadUrl ? "去下载页（当前环境不支持应用内安装）" : "打开 Release 页"}
                 </a>
@@ -140,7 +140,7 @@ export function UpdateCard() {
         </div>
       )}
 
-      <p className="mt-3 text-[10px] leading-relaxed text-slate-600">
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
         升级从 GitHub Releases 拉取。Android 安全机制要求安装时在系统弹窗点「安装」，并允许本应用「安装未知应用」，无法完全静默。
       </p>
     </section>

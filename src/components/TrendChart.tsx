@@ -362,10 +362,10 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
   const xauUsd = quotes.get("xau-usd");
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur">
-      <div className="flex items-center justify-between">
+    <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">趋势图 · 国际黄金实时</h2>
-        <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-300">
+        <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-300">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
           UTC 实时
         </span>
@@ -380,7 +380,7 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
           return (
             <span
               key={def.instrumentId}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/40 px-2 py-1 text-[11px]"
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/40 px-2 py-1 text-[11px]"
             >
               <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: def.color }} />
               <span className="text-slate-300">{def.label}</span>
@@ -444,9 +444,9 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
         ))}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-600">
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
         <span className="rounded bg-slate-900/70 px-1.5 py-0.5 text-slate-500">UTC</span>
-        <span className="flex-1">· 伦敦金当日分时（新浪国际期货，UTC时间）+ 人民币理论金价（按当前汇率换算），右端追加实时点</span>
+        <span className="min-w-0 flex-1">· 伦敦金当日分时（新浪国际期货，UTC时间）+ 人民币理论金价（按当前汇率换算），右端追加实时点</span>
         {xauUsd?.dayHigh != null && xauUsd.dayLow != null && (
           <span
             className="shrink-0 tabular-nums text-slate-400"

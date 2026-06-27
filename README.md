@@ -137,10 +137,19 @@ PhoneApp/
 
 ## UI/UX 约定
 
-- 深色金融仪表盘风、移动端单列、触控区 ≥44px、`focus-visible` 可见、支持 `prefers-reduced-motion`。
+- 深色金融仪表盘风（琥珀金 #F59E0B 主色 + 深空背景）、移动端单列（`max-w-md`）、`focus-visible` 可见、支持 `prefers-reduced-motion`。
 - **红涨绿跌**（中国习惯）：涨/利多 = rose(红)，跌/利空 = emerald(绿)。
 - 无数据显式空状态（`--` / 「暂无」），不画假线、不伪造跳动。
 - JSX 文本不用 ASCII 直引号（用全角「」），避免 `react/no-unescaped-entities`。
+
+### 移动端统一尺寸规范（用 `ui-ux-pro-max` skill 系统化重做后定，须一致遵循）
+
+- **字号阶梯只用 5 档**：`text-[11px]`（辅助/徽章/时间，下限就是 11px，不再用 9/10px）、`text-sm`（正文/控件/银行名）、`text-base`（卡片标题）、`text-xl`（国际锚价数值）、`text-3xl`（hero 主价）。
+- **卡片外壳统一** `rounded-2xl p-4`（告别 3xl/p-5/p-3 混用）；**内部子卡** `rounded-xl p-3`（比外壳小一级形成层级）。
+- **触控区**：主控件（输入框/下拉/添加/下载安装等主动作）`min-h-11`（44px）；列表内联次级按钮（启用/删除/检查更新/通知开关）`min-h-9`（36px）且彼此间距 `gap-2`（≥8px）。
+- **防溢出三件套**：横向布局子项加 `min-w-0` + 文本 `truncate`，固定元素加 `shrink-0`；全局 `html,body { overflow-x: hidden }` 兜底（杜绝左右拖动）。
+- **滚动条**：`body` 隐藏滚动条（`scrollbar-width:none` + `::-webkit-scrollbar{display:none}` + `-ms-overflow-style:none`）但保留滚动；`html` 加 `touch-action: manipulation`（去 300ms 点击延迟）+ `overscroll-behavior-y: contain`（防误触下拉）。
+- 容器统一横向 `px-4`，header 不再额外缩进，与卡片左右对齐。
 
 ## 诚实边界（最高准则）
 

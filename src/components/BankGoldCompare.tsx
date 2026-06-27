@@ -1,5 +1,8 @@
 "use client";
 
+// 银行积存金对比卡（移动端统一规范）：外壳 rounded-2xl p-4 · 行子卡 rounded-xl p-3
+//   字号阶梯：text-[11px](来源/时间/单位) / text-sm(银行名) / text-base(标题、价格)。
+
 import type { Quote } from "@/lib/types";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
 import { bankSourceBadge, fmtPrice, fmtTime } from "@/lib/display";
@@ -26,10 +29,10 @@ export function BankGoldCompare({
   });
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
-      <div className="flex items-center justify-between">
+    <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">银行积存金对比</h2>
-        <span className="text-[11px] text-slate-500">
+        <span className="shrink-0 text-[11px] text-slate-500">
           真实 {realCount}/{total}
         </span>
       </div>
@@ -40,14 +43,14 @@ export function BankGoldCompare({
           return (
             <div
               key={product.instrumentId}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-900/40 px-3 py-2.5"
+              className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-slate-900/40 p-3"
             >
               {/* 标的 + 数据源 */}
               <div className="min-w-0">
-                <div className="truncate font-medium text-white">{product.bankName}</div>
-                <div className="mt-0.5 flex items-center gap-1.5">
-                  <span className={`text-[10px] ${badge.cls}`}>●{badge.label}</span>
-                  <span className="text-[10px] text-slate-600">{fmtTime(q?.timestamp)}</span>
+                <div className="truncate text-sm font-medium text-white">{product.bankName}</div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className={`shrink-0 text-[11px] ${badge.cls}`}>●{badge.label}</span>
+                  <span className="truncate text-[11px] text-slate-600">{fmtTime(q?.timestamp)}</span>
                 </div>
               </div>
 
@@ -56,7 +59,7 @@ export function BankGoldCompare({
                 <div className="text-base font-semibold tabular-nums text-amber-100">
                   {price != null ? `¥${fmtPrice(price)}` : "--"}
                 </div>
-                <div className="text-[10px] text-slate-500">元/克</div>
+                <div className="text-[11px] text-slate-500">元/克</div>
               </div>
             </div>
           );

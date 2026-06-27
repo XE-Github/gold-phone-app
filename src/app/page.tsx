@@ -82,12 +82,12 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="mx-auto min-h-dvh w-full max-w-md px-3 pb-16 pt-3">
+    <main className="mx-auto min-h-dvh w-full max-w-md px-4 pb-16 pt-4">
       <AlertToast fired={alerts.fired} onDismiss={alerts.dismissFired} />
 
-      {/* Header */}
-      <header className="mb-3 flex items-center justify-between px-1">
-        <div>
+      {/* Header：与卡片左右对齐（统一 px-4 容器，header 不再额外缩进） */}
+      <header className="mb-3 flex items-center justify-between gap-2">
+        <div className="min-w-0">
           <h1 className="text-lg font-bold text-white">黄金看板·手机版</h1>
           <p className="text-[11px] text-slate-500">实时金价 · 提醒 · 积存金对比</p>
         </div>
@@ -95,7 +95,7 @@ export default function Home() {
       </header>
 
       {warnings.length > 0 && (
-        <div className="mb-3 rounded-2xl border border-amber-400/20 bg-amber-500/[0.07] px-3 py-2 text-[11px] text-amber-200/80">
+        <div className="mb-3 space-y-0.5 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] p-3 text-[11px] leading-relaxed text-amber-200/80">
           {warnings.map((w, i) => (
             <p key={i}>· {w}</p>
           ))}
@@ -122,13 +122,22 @@ export default function Home() {
         <UpdateCard />
       </div>
 
-      <footer className="mt-6 px-1 text-center text-[10px] leading-relaxed text-slate-600">
+      <footer className="mt-6 text-center text-[11px] leading-relaxed text-slate-600">
         <p>学习辅助工具，非投资建议，投资有风险。</p>
-        <p className="mt-1">
-          <a href="/diag" className="text-slate-500 underline">装机诊断</a>
-          {" · "}
-          <a href="/notify-check" className="text-slate-500 underline">通知诊断</a>
-        </p>
+        <div className="mt-2 flex items-center justify-center gap-2">
+          <a
+            href="/diag"
+            className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400"
+          >
+            装机诊断
+          </a>
+          <a
+            href="/notify-check"
+            className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400"
+          >
+            通知诊断
+          </a>
+        </div>
       </footer>
     </main>
   );
@@ -142,13 +151,13 @@ function StatusPill({ status, lastUpdate }: { status: StreamStatus; lastUpdate: 
   } as const;
   const s = map[status];
   return (
-    <div className="flex flex-col items-end">
+    <div className="flex shrink-0 flex-col items-end">
       <div className="flex items-center gap-1.5">
         <span className={`h-2 w-2 rounded-full ${s.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
         <span className={`text-xs ${s.cls}`}>{s.text}</span>
       </div>
       {lastUpdate && (
-        <span className="text-[10px] tabular-nums text-slate-600">
+        <span className="text-[11px] tabular-nums text-slate-600">
           {new Date(lastUpdate).toLocaleTimeString("zh-CN", {
             hour: "2-digit",
             minute: "2-digit",

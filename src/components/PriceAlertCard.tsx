@@ -69,13 +69,13 @@ export function PriceAlertCard({
   }
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
+    <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">价格提醒</h2>
         <button
           onClick={enableNotify}
           disabled={perm === "granted" || perm === "unsupported"}
-          className={`min-h-[32px] rounded-lg px-2.5 text-[11px] ${notifyBtn.cls}`}
+          className={`min-h-9 shrink-0 rounded-lg px-3 text-[11px] font-medium disabled:opacity-60 ${notifyBtn.cls}`}
         >
           {notifyBtn.text}
         </button>
@@ -89,13 +89,13 @@ export function PriceAlertCard({
         </p>
       )}
 
-      {/* 新建规则 */}
+      {/* 新建规则：标的占 2/3、方向占 1/3（min-w-0 防长名撑破横向） */}
       <div className="mt-3 space-y-2.5">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2">
           <select
             value={instrumentId}
             onChange={(e) => setInstrumentId(e.target.value)}
-            className="min-h-[44px] flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+            className="min-h-11 min-w-0 flex-[2] rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
             aria-label="选择监控标的"
           >
             {ALERTABLE.map((m) => (
@@ -107,7 +107,7 @@ export function PriceAlertCard({
           <select
             value={direction}
             onChange={(e) => setDirection(e.target.value as AlertDirection)}
-            className="min-h-[44px] w-[92px] rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
+            className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm text-white"
             aria-label="选择方向"
           >
             <option value="above">突破 ≥</option>
@@ -122,17 +122,17 @@ export function PriceAlertCard({
             placeholder={
               currentPrice ? `当前约 ${fmtPrice(currentPrice)}` : "输入价格阈值"
             }
-            className="min-h-[44px] flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm tabular-nums text-white placeholder:text-slate-500"
+            className="min-h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-sm tabular-nums text-white placeholder:text-slate-500"
             aria-label="价格阈值"
           />
           <button
             onClick={submit}
-            className="min-h-[44px] rounded-xl bg-amber-500 px-5 text-sm font-semibold text-slate-950 active:bg-amber-400"
+            className="min-h-11 shrink-0 rounded-xl bg-amber-500 px-5 text-sm font-semibold text-slate-950 active:bg-amber-400"
           >
             添加
           </button>
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-400">
+        <label className="flex items-center gap-2 text-[11px] text-slate-400">
           <input
             type="checkbox"
             checked={sound}
@@ -155,12 +155,12 @@ export function PriceAlertCard({
 
         {/* 提示文案：原生壳与 Web 分流（原生无浏览器/添加主屏概念） */}
         {native ? (
-          <p className="text-[10px] leading-relaxed text-slate-500">
+          <p className="text-[11px] leading-relaxed text-slate-500">
             ⚠️ 提醒在 App 打开/前台时监控；首次需点上方「开启系统通知」并在系统弹窗允许。
             后台被系统杀死后会停止监控，可在系统设置里给本 App「免后台限制/自启动」缓解。
           </p>
         ) : (
-          <p className="text-[10px] leading-relaxed text-slate-500">
+          <p className="text-[11px] leading-relaxed text-slate-500">
             ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
             若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
             排查通知可打开诊断页{" "}
@@ -173,12 +173,12 @@ export function PriceAlertCard({
         {error && <p className="text-xs text-rose-400">{error}</p>}
       </div>
 
-      {/* 规则列表 */}
+      {/* 规则列表：子卡 rounded-xl，内联按钮 min-h-9(36px) 且间距 ≥8px */}
       <div className="mt-4 space-y-2">
         {!hydrated ? (
-          <p className="text-xs text-slate-500">加载本地提醒规则…</p>
+          <p className="text-sm text-slate-500">加载本地提醒规则…</p>
         ) : rules.length === 0 ? (
-          <p className="text-xs text-slate-500">
+          <p className="text-sm text-slate-500">
             还没有提醒规则。设置后价格触达阈值会在页面顶部弹出提示。
           </p>
         ) : (
@@ -187,7 +187,7 @@ export function PriceAlertCard({
             return (
               <div
                 key={rule.id}
-                className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2.5"
+                className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-slate-900/40 p-3"
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm text-white">
@@ -196,14 +196,14 @@ export function PriceAlertCard({
                       {rule.direction === "above" ? "≥" : "≤"} {fmtPrice(rule.threshold)}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="mt-0.5 text-[11px] text-slate-500">
                     {rule.sound ? "🔔 有声" : "🔕 静音"} · {meta?.unit}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     onClick={() => onToggle(rule.id)}
-                    className={`min-h-[36px] rounded-lg px-2.5 text-xs ${
+                    className={`min-h-9 rounded-lg px-3 text-[11px] font-medium ${
                       rule.enabled
                         ? "bg-emerald-500/15 text-emerald-300"
                         : "bg-slate-700/40 text-slate-400"
@@ -213,7 +213,7 @@ export function PriceAlertCard({
                   </button>
                   <button
                     onClick={() => onRemove(rule.id)}
-                    className="min-h-[36px] rounded-lg bg-rose-500/10 px-2.5 text-xs text-rose-300"
+                    className="min-h-9 rounded-lg bg-rose-500/10 px-3 text-[11px] font-medium text-rose-300"
                     aria-label="删除规则"
                   >
                     删除
