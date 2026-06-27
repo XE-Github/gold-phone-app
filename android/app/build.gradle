@@ -19,6 +19,24 @@ def derivedVersionCode = vMajor * 10000 + vMinor * 100 + vPatch
 android {
     namespace = "com.xegithub.goldphone"
     compileSdk = rootProject.ext.compileSdkVersion
+
+    // 固定 release 签名：env 优先（CI），回退 gradle property（本地 -P）。
+    // 关键：env 不存在时不读字段（见下方 if 守卫），本地无 keystore 仍可 assembleDebug。
+    signingConfigs {
+        release {
+            def ksPath  = System.getenv("RELEASE_STORE_FILE")     ?: project.findProperty("RELEASE_STORE_FILE")
+            def ksPass  = System.getenv("RELEASE_STORE_PASSWORD") ?: project.findProperty("RELEASE_STORE_PASSWORD")
+            def ksAlias = System.getenv("RELEASE_KEY_ALIAS")      ?: project.findProperty("RELEASE_KEY_ALIAS")
+            def keyPass = System.getenv("RELEASE_KEY_PASSWORD")   ?: project.findProperty("RELEASE_KEY_PASSWORD")
+            if (ksPath) {
+                storeFile     file(ksPath)
+                storePassword ksPass
+                keyAlias      ksAlias
+                keyPassword   keyPass
+            }
+        }
+    }
+
     defaultConfig {
         applicationId "com.xegithub.goldphone"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -36,6 +54,10 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // 仅当 keystore 路径存在时才挂签名；本地无 env 时不挂，避免配置期报错。
+            if (System.getenv("RELEASE_STORE_FILE") ?: project.findProperty("RELEASE_STORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

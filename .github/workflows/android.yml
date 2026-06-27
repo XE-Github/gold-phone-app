@@ -1,8 +1,10 @@
 name: Android Build
 
 # 云端打 apk（本机无安卓工具链，故 CI 构建）。GitHub 仅打包+发布，不托管任何运行时。
-#   - push 到 main / 手动触发：构建 debug apk 并作为 artifact 上传
+#   - push 到 main / 手动触发：构建【固定签名的 release apk】并作为 artifact 上传
 #   - 打 tag（v*）：构建后把 apk 发布到 GitHub Releases（供 App 内 OTA 拉取）
+# 签名：用固定 release keystore（存于 Secret RELEASE_KEYSTORE_BASE64），保证所有版本
+#       签名一致 → 可覆盖安装、应用内 OTA 可用。密钥由一次性 gen-keystore.yml 生成。
 
 on:
   push:
@@ -50,24 +52,35 @@ jobs:
       - name: Capacitor sync (web → android assets)
         run: npx cap sync android
 
-      - name: Gradle assembleDebug
+      - name: Decode release keystore
+        # 把 Secret 里的 base64 还原成 keystore，落 $RUNNER_TEMP（run 结束自动清理，不污染工作区）
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Gradle assembleRelease
         working-directory: android
+        # env 名与 app/build.gradle 的 System.getenv(...) 完全对应
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/release.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         # chmod 兜底：gradlew 在 Windows 提交时可能丢失可执行位（已同时用 git update-index 标记）
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Locate apk
         id: apk
         run: |
-          path=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -1)
+          path=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
           echo "path=$path" >> "$GITHUB_OUTPUT"
           echo "Found apk: $path"
 
       - name: Upload apk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gold-phone-debug-apk
+          name: gold-phone-release-apk
           path: ${{ steps.apk.outputs.path }}
 
       - name: Publish to Releases (on tag)
