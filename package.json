@@ -1,6 +1,6 @@
 {
   "name": "gold-phone-app",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "独立隔离的黄金看板手机网页版（实时金价+提醒、银行积存金对比）。与主项目完全解耦，自带数据抓取。",
   "scripts": {
@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^7.1.2",
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/device": "^7.0.5",
     "@capacitor/filesystem": "^7.1.8",
     "@capacitor/local-notifications": "^7.0.6",
     "@choreruiz/capacitor-node-js": "^1.0.2",

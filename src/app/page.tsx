@@ -12,6 +12,7 @@ import { usePriceAlerts } from "@/lib/usePriceAlerts";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
 import { DiagPanel } from "@/components/DiagPanel";
+import { ConsentGate } from "@/components/ConsentGate";
 
 // 积存金标的 id 集合：SSE 把行情+积存金合并推送，前端按 id 归属拆回两份。
 const BANK_IDS = new Set(BANK_GOLD_PRODUCTS.map((p) => p.instrumentId));
@@ -22,7 +23,17 @@ function toMap(quotes: Quote[]): Map<string, Quote> {
   return m;
 }
 
+// 默认导出包一层强制同意门：未同意前不渲染主页内容、不订阅任何数据；
+// 同意后才渲染 HomeContent 并由 ConsentGate 触发启动埋点（见 ConsentGate / analytics.ts）。
 export default function Home() {
+  return (
+    <ConsentGate>
+      <HomeContent />
+    </ConsentGate>
+  );
+}
+
+function HomeContent() {
   const [quotes, setQuotes] = useState<Map<string, Quote>>(new Map());
   const [bankQuotes, setBankQuotes] = useState<Map<string, Quote>>(new Map());
   const [bankMeta, setBankMeta] = useState<{ realCount: number; total: number }>({

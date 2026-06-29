@@ -15,6 +15,7 @@
 // 不静态 import 插件（与 apiBase/notify 同套路）：web/dev 无插件时静态 import 会运行期炸。
 
 import { isNativeApp } from "./apiBase";
+import { trackOta } from "./analytics";
 
 const REPO = "XE-Github/gold-phone-app";
 const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -123,6 +124,7 @@ interface GitHubRelease {
 }
 
 export async function checkForUpdate(): Promise<UpdateInfo> {
+  void trackOta("check"); // 埋点：用户/应用触发了一次检查更新（fire-and-forget，不影响检查本身）
   const cur = currentVersion();
   const base: UpdateInfo = {
     hasUpdate: false,
@@ -234,6 +236,7 @@ export async function downloadAndInstall(
   }
 
   try {
+    void trackOta("download"); // 埋点：开始下载新版 apk
     onProgress?.({ phase: "downloading", received: 0, total: null });
     await fs.downloadFile({ url: downloadUrl, path: fileName, directory: CACHE, progress: true });
 
@@ -241,6 +244,7 @@ export async function downloadAndInstall(
     const { uri } = await fs.getUri({ path: fileName, directory: CACHE });
 
     onProgress?.({ phase: "installing" });
+    void trackOta("install_launch"); // 埋点：唤起系统安装器（不代表用户已点安装）
     const r = await installer.installApk({ filePath: uri });
     onProgress?.({ phase: r.launched ? "done" : "error", message: r.launched ? undefined : "未能唤起安装器" } as OtaProgress);
     return r.launched === true;

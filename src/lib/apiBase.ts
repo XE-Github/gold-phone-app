@@ -30,6 +30,7 @@ const IPC_RES = "gold:res"; // Node→前端：返回某次请求结果 {id, ok,
 const IPC_STREAM = "gold:stream"; // Node→前端：行情流一帧 payload
 const IPC_STREAM_START = "gold:stream:start"; // 前端→Node：开始推流
 const IPC_STREAM_STOP = "gold:stream:stop"; // 前端→Node：停止推流
+const IPC_TRACK = "gold:track"; // 前端→Node：上报一条埋点 {endpoint, body}（Node 用 https POST，绕 WebView）
 
 declare global {
   interface Window {
@@ -280,4 +281,5 @@ export const IPC_EVENTS = {
   STREAM: IPC_STREAM,
   STREAM_START: IPC_STREAM_START,
   STREAM_STOP: IPC_STREAM_STOP,
+  TRACK: IPC_TRACK,
 } as const;

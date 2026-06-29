@@ -11,6 +11,7 @@
 // 诚实：bridge 模块由插件在运行时注入（builtin_modules），本仓库不含其实现；
 // 本地 tsc 用下方最小类型声明保证类型检查通过，真实行为以装机为准。
 
+import https from "node:https";
 import { buildQuotes, buildBankGold, buildHistory, start as startHttp } from "./embeddedServer";
 import { subscribe } from "../lib/streamManager";
 import { IPC_EVENTS } from "../lib/apiBase";
@@ -34,6 +35,45 @@ function getChannel(): BridgeChannel | null {
 }
 
 type ReqMsg = { id?: number; route?: string };
+
+// 埋点上报：前端经 IPC 把 {endpoint, body} 交给 Node，用 https POST 发出去。
+// 走 Node 而非 WebView fetch：绕开 Chromium WebView 的 CORS / UA 丢弃坑（同 OTA 教训）。
+// fire-and-forget：失败静默丢弃，无重试队列（本版设计如此），绝不影响主功能。
+type TrackMsg = { endpoint?: string; body?: unknown };
+
+function handleTrack(msg: TrackMsg): void {
+  try {
+    const { endpoint, body } = msg;
+    if (typeof endpoint !== "string" || !endpoint || body == null) return;
+    const payload = JSON.stringify(body);
+    const u = new URL(endpoint);
+    if (u.protocol !== "https:") return; // 只发 https，杜绝明文
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          "User-Agent": "gold-phone-app",
+        },
+        timeout: 8000,
+      },
+      (res) => {
+        res.on("data", () => {}); // 排空响应体，不关心内容
+        res.on("end", () => {});
+      },
+    );
+    req.on("error", () => {}); // 网络失败：丢弃这条
+    req.on("timeout", () => req.destroy());
+    req.write(payload);
+    req.end();
+  } catch {
+    /* 埋点绝不影响主流程 */
+  }
+}
 
 async function handleRequest(channel: BridgeChannel, msg: ReqMsg): Promise<void> {
   const { id, route } = msg;
@@ -90,6 +130,12 @@ function main(): void {
   channel.addListener(IPC_EVENTS.STREAM_STOP, () => {
     unsubscribe?.();
     unsubscribe = null;
+  });
+
+  // 4) 埋点上报（前端→Node→https POST 到 Worker）。阶段 1 endpoint 为空时前端根本不发，
+  //    此监听为阶段 2 预留：接通 Worker 后无需再改 Node 侧。
+  channel.addListener(IPC_EVENTS.TRACK, (data) => {
+    handleTrack((data ?? {}) as TrackMsg);
   });
 
   // 告知前端 Node 侧已就绪

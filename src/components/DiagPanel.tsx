@@ -23,6 +23,12 @@ import {
   isNativeNotify,
 } from "@/lib/notify";
 import { checkForUpdate, currentVersion, canInstallUpdate } from "@/lib/ota";
+import {
+  getConsent,
+  peekDeviceId,
+  getModel,
+  getLocalEventLog,
+} from "@/lib/analytics";
 import type { Quote, BankDirectDiag } from "@/lib/types";
 
 // ── 运行环境探测（不静态依赖 Capacitor，运行期读 window） ──
@@ -191,6 +197,16 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
   } | null>(null);
   const streamUnsubRef = useRef<(() => void) | null>(null);
 
+  // 本机埋点预览（阶段 1）：看同意状态 / 设备标识 / 型号 / 已记录事件数。
+  // 只读本地，不触发任何上报；URL 阶段 1 为空，事件仅记本地环形缓冲。
+  const [analytics, setAnalytics] = useState<{
+    consent: string;
+    did: string;
+    model: string;
+    eventCount: number;
+    lastEvents: string[];
+  } | null>(null);
+
   const append = useCallback((line: string) => {
     setLog((prev) => [
       `${new Date().toLocaleTimeString("zh-CN", { hour12: false })}  ${line}`,
@@ -203,9 +219,33 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     setPerm(notificationPermission());
   }, []);
 
+  const refreshAnalytics = useCallback(async () => {
+    try {
+      const log = getLocalEventLog();
+      const last = log
+        .slice(-5)
+        .map((e) => {
+          const t = new Date(e.ts).toLocaleTimeString("zh-CN", { hour12: false });
+          const tag = e.event === "ota_action" && e.ext ? `ota_action:${String((e.ext as Record<string, unknown>).ota ?? "")}` : e.event;
+          return `${t} ${tag} (${e.ver})`;
+        })
+        .reverse();
+      setAnalytics({
+        consent: getConsent(),
+        did: peekDeviceId() ?? "（未生成，需先同意）",
+        model: await getModel(),
+        eventCount: log.length,
+        lastEvents: last,
+      });
+    } catch {
+      /* 预览失败不致命 */
+    }
+  }, []);
+
   useEffect(() => {
     queueMicrotask(refreshEnv);
-  }, [refreshEnv]);
+    queueMicrotask(() => void refreshAnalytics());
+  }, [refreshEnv, refreshAnalytics]);
 
   // 单条路由探测：计时 + 计数 + 收 warnings，绝不抛（出错落 error 字段）。
   const probeRoute = useCallback(
@@ -435,6 +475,28 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     lines.push(`支持通知: ${notificationSupported()}`);
     if (ota) lines.push(`OTA 检查: ${ota}`);
 
+    // ⑤ 本机埋点（阶段 1：只本地记录，URL 空不上传）
+    lines.push("");
+    lines.push("【⑤ 本机埋点(匿名统计)】");
+    if (!analytics) {
+      lines.push("(未读取)");
+    } else {
+      const c =
+        analytics.consent === "granted"
+          ? "已同意"
+          : analytics.consent === "declined"
+            ? "已拒绝"
+            : "未决定";
+      lines.push(`同意状态: ${c}`);
+      lines.push(`设备标识(匿名): ${analytics.did}`);
+      lines.push(`设备型号: ${analytics.model}`);
+      lines.push(`本地已记录事件: ${analytics.eventCount} 条（阶段1只本地、不上传）`);
+      if (analytics.lastEvents.length > 0) {
+        lines.push("最近事件:");
+        for (const e of analytics.lastEvents) lines.push(`  · ${e}`);
+      }
+    }
+
     // 操作日志（最新在上，原样附）。
     if (log.length > 0) {
       lines.push("");
@@ -445,7 +507,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     lines.push("");
     lines.push("===== 报告结束 =====");
     return lines.join("\n");
-  }, [env, quotesR, bankR, historyR, streamR, perm, ota, log]);
+  }, [env, quotesR, bankR, historyR, streamR, perm, ota, log, analytics]);
 
   // 纯 App 内完成：永远把全文渲染进页面文本框（不依赖剪贴板 API 是否可用），
   // 同时尽力写一次剪贴板作为加成。这样无论 WebView 剪贴板行不行，用户都能拿到全文。
@@ -688,6 +750,50 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
             ③ 检查更新（测 GitHub 连通）
           </button>
         </div>
+      </section>
+
+      {/* ⑤ 本机埋点（匿名统计预览，阶段 1 只本地不上传） */}
+      <h2 className="mt-4 mb-1 text-sm font-semibold text-amber-300">⑤ 本机埋点（匿名统计）</h2>
+      <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+        {!analytics ? (
+          <p className="text-sm text-slate-400">读取中…</p>
+        ) : (
+          <>
+            <Row
+              k="同意状态"
+              v={
+                analytics.consent === "granted"
+                  ? "已同意"
+                  : analytics.consent === "declined"
+                    ? "已拒绝"
+                    : "未决定"
+              }
+              good={analytics.consent === "granted" ? true : analytics.consent === "declined" ? false : null}
+            />
+            <Row k="设备标识(匿名)" v={analytics.did} good={null} />
+            <Row k="设备型号" v={analytics.model} good={null} />
+            <Row k="本地已记录事件" v={`${analytics.eventCount} 条`} good={null} />
+            {analytics.lastEvents.length > 0 && (
+              <div className="mt-2 space-y-0.5 text-[11px] leading-relaxed text-slate-400">
+                <p className="text-slate-500">最近事件：</p>
+                {analytics.lastEvents.map((e, i) => (
+                  <p key={i} className="tabular-nums">· {e}</p>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              当前为阶段 1：事件只记在本机、<strong className="text-slate-300">不上传</strong>。
+              「设备标识」是首次同意后随机生成的匿名 ID（非手机序列号），用于去重统计活跃。
+              接通后台后才会把这些匿名事件上报，用于看大致的活跃与升级情况。
+            </p>
+            <button
+              onClick={() => void refreshAnalytics()}
+              className="mt-3 min-h-9 rounded-xl border border-white/10 px-4 text-sm text-slate-300 active:bg-white/5"
+            >
+              刷新埋点预览
+            </button>
+          </>
+        )}
       </section>
 
       <button
