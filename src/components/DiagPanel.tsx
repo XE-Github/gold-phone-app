@@ -28,6 +28,7 @@ import {
   peekDeviceId,
   getModel,
   getLocalEventLog,
+  reportDiagFeedback,
 } from "@/lib/analytics";
 import type { Quote, BankDirectDiag } from "@/lib/types";
 
@@ -206,6 +207,13 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     eventCount: number;
     lastEvents: string[];
   } | null>(null);
+
+  // 日志反馈：诊断跑完若发现错误，静默上报结构化摘要，并在页面显示 6 位反馈编号。
+  // feedbackCode：null=未上报(无错误/未派发)；"NNNNNN"=已派发上传的编号；
+  //               "__none__"=有错误但未派发(未同意/无通道)→ 显示诚实文案而非假编号。
+  // fbSentRef：整页只自动上报一次的守卫（探测会多次 setState 触发 effect 重跑）。
+  const [feedbackCode, setFeedbackCode] = useState<string | null>(null);
+  const fbSentRef = useRef(false);
 
   const append = useCallback((line: string) => {
     setLog((prev) => [
@@ -533,6 +541,79 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
 
   const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes, bankR.bankDirectDiag) : null;
 
+  // 从现有探测 state 判错并组装一份小而全的结构化摘要（不改 buildReport，纯只读）。
+  // hasError 为 true 时才上报；summary 各字段已限长/限量，整体远小于 Worker 4KB 上限。
+  const collectErrors = useCallback((): {
+    hasError: boolean;
+    summary: Record<string, unknown>;
+  } => {
+    // 路由结论：成功→"ok"；失败→error（截断）。null（还没探完）这里走不到（调用前已判 settled）。
+    const routeVerdict = (r: RouteResult | null): string =>
+      !r ? "pending" : r.ok ? "ok" : (r.error || "err").slice(0, 48);
+    const routes = {
+      quotes: routeVerdict(quotesR),
+      bank: routeVerdict(bankR),
+      history: routeVerdict(historyR),
+    };
+
+    // 工行/建行老旧 TLS 直连：成功→"ok"；失败→具体原因码/文案（如 EPROTO…）。
+    const tlsV = bankR?.ok ? bankTlsVerdict(bankR.quotes, bankR.bankDirectDiag) : null;
+    const tls = {
+      icbc: tlsV ? (tlsV.icbcGood ? "ok" : tlsV.icbc.slice(0, 48)) : "bank-route-fail",
+      ccb: tlsV ? (tlsV.ccbGood ? "ok" : tlsV.ccb.slice(0, 48)) : "bank-route-fail",
+    };
+
+    const frames = streamR?.frames ?? -1;
+    const missing = instrumentRows(quotesR?.quotes)
+      .filter((r) => !r.has)
+      .map((r) => r.label);
+
+    // 行情/积存金警告原文（各取前 2 条，限长），帮助定位上游抓取异常。
+    const warn = [
+      ...(quotesR?.warnings ?? []).slice(0, 2),
+      ...(bankR?.warnings ?? []).slice(0, 2),
+    ].map((w) => w.slice(0, 120));
+
+    const hasError =
+      !quotesR?.ok ||
+      !bankR?.ok ||
+      !historyR?.ok ||
+      (tlsV ? !tlsV.icbcGood || !tlsV.ccbGood : true) ||
+      (streamR?.done === true && (streamR?.frames ?? 0) === 0) ||
+      missing.length > 0;
+
+    const summary: Record<string, unknown> = {
+      v: env?.version ?? currentVersion(),
+      plat: env?.platform ?? "",
+      routes,
+      tls,
+      stream: frames,
+      missing,
+      warn,
+    };
+    return { hasError, summary };
+  }, [env, quotesR, bankR, historyR, streamR]);
+
+  // 自动触发：四路探测全 settled（含 8s 推流）后判错一次；有错则静默上报并显示编号。
+  // 用 fbSentRef 守卫整页只跑一次（探测期间多次 setState 会触发本 effect 重跑）。
+  useEffect(() => {
+    if (fbSentRef.current) return;
+    const settled = Boolean(quotesR && bankR && historyR && streamR?.done);
+    if (!settled) return;
+    fbSentRef.current = true;
+    const { hasError, summary } = collectErrors();
+    if (!hasError) return; // 没错误：不上报、不显示编号，诊断页与之前一致
+    void reportDiagFeedback(summary).then((fid) => {
+      // fid=编号→已派发；null→未同意/无通道，显示诚实文案（哨兵 "__none__"）而非假编号。
+      setFeedbackCode(fid ?? "__none__");
+      append(
+        fid
+          ? `检测到异常 → 已自动上报，反馈编号 ${fid}`
+          : "检测到异常 → 本机未上报（未同意或无上传通道）",
+      );
+    });
+  }, [quotesR, bankR, historyR, streamR, collectErrors, append]);
+
   const overlay = typeof onClose === "function";
   return (
     <main
@@ -554,6 +635,25 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
       <p className="mt-1 text-[11px] text-slate-500">
         一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点下方按钮生成全文，复制发回即可。
       </p>
+
+      {/* 日志反馈：诊断发现异常时，已自动上报错误摘要，显示 6 位反馈编号供作者定位。
+          feedbackCode 为编号串→显示编号块；为 "__none__"→显示诚实「未上报」文案；为 null→不渲染。 */}
+      {feedbackCode && feedbackCode !== "__none__" && (
+        <div className="mt-3 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3">
+          <div className="text-sm font-semibold text-rose-200">⚠️ 检测到异常，已自动上报</div>
+          <div className="mt-2 text-center font-mono text-3xl font-bold tracking-[0.2em] tabular-nums text-rose-100">
+            {feedbackCode}
+          </div>
+          <div className="mt-2 text-center text-[11px] text-rose-200/80">
+            把这 6 位反馈编号告诉作者，即可精确定位本次诊断。
+          </div>
+        </div>
+      )}
+      {feedbackCode === "__none__" && (
+        <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200">
+          检测到异常，但本机未上报（未同意匿名统计或暂无上传通道）。可点下方按钮生成全文手动发回。
+        </div>
+      )}
 
       {/* 生成诊断报告：全在 App 内——点一下即把全文渲染进下方文本框(不依赖剪贴板)，并尽力写一次剪贴板。
           注意：按钮【始终可点、文字不变】。探测中也能点(生成当前快照)，避免被「探测中」盖住让人误以为没按钮。
