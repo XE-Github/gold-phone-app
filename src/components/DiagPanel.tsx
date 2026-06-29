@@ -418,6 +418,38 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     }
   }
 
+  // 测试用：主动发一条「自带错误」的反馈，验证云端回执链路（拿编号）。
+  // 用一份写死的假摘要，并明确打 test:true + note:"manual-test"——这样落进 feedback/*.ndjson 时
+  // 一眼能认出是用户主动测试、不是真实故障，绝不会被当真问题分析。
+  // 走的是与自动上报同一个 reportDiagFeedback（同一回执通道），故能完整验证全链路。
+  async function onSendTestFeedback() {
+    const summary: Record<string, unknown> = {
+      test: true,
+      note: "manual-test",
+      v: env?.version ?? currentVersion(),
+      plat: env?.platform ?? "",
+      // 写死的假错误现场（仅供测试链路；非真实探测结果）。
+      routes: { quotes: "test-forced-error", bank: "test-forced-error", history: "test-forced-error" },
+      tls: { icbc: "test-forced-error", ccb: "test-forced-error" },
+      stream: -1,
+      missing: ["__manual_test__"],
+      warn: ["这是装机诊断页的『发测试反馈』按钮主动触发的测试记录，非真实故障。"],
+    };
+    setFb({ phase: "sending" });
+    append("【测试】主动发一条自带错误的反馈，等待云端回执编号…");
+    const r: FeedbackResult = await reportDiagFeedback(summary);
+    if (r.status === "ok") {
+      setFb({ phase: "ok", fid: r.fid });
+      append(`【测试】上报成功 → 云端反馈编号 ${r.fid}（记录已落库，标记 test:true）`);
+    } else if (r.status === "skipped") {
+      setFb({ phase: "skipped" });
+      append("【测试】本机未上报（未同意匿名统计或无上传通道）");
+    } else {
+      setFb({ phase: "failed" });
+      append("【测试】上报失败（超时/网络不通，可能需开 VPN）→ 未生成编号");
+    }
+  }
+
   // 把整页探测结果汇成一段结构化纯文本，供复制后粘贴回报。
   const buildReport = useCallback((): string => {
     const lines: string[] = [];
@@ -878,6 +910,16 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
           >
             ③ 检查更新（测 GitHub 连通）
           </button>
+          <button
+            onClick={() => void onSendTestFeedback()}
+            className="min-h-[44px] rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 text-sm font-semibold text-rose-200 active:bg-rose-500/25"
+          >
+            ④ 发测试反馈（自带错误·测云端回执编号）
+          </button>
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            点④会主动上报一条<strong className="text-rose-200/90">写死的假错误</strong>（已标 test，不当真实故障），
+            用来验证云端回执：成功 → 顶部出 6 位编号（把编号告诉作者即可）；失败 → 顶部「上报失败」（多半没开 VPN）。
+          </p>
         </div>
       </section>
 
