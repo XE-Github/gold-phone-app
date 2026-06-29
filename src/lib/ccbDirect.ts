@@ -17,6 +17,23 @@ const ccbAgent = new https.Agent({
   secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT as number,
 });
 
+// 直连诊断：同 icbcDirect，记录上一次失败原因供诊断页显示（见该文件注释）。
+let lastCcbDiag = "ok";
+export function getCcbDirectDiag(): string {
+  return lastCcbDiag;
+}
+
+function diagFromError(e: unknown): string {
+  const code = (e as { code?: string }).code;
+  if (code) return code;
+  if (e instanceof Error) {
+    if (e.message.startsWith("HTTP ")) return e.message;
+    if (e.message === "timeout") return "timeout";
+    return e.message || "error";
+  }
+  return "error";
+}
+
 interface CcbNgjs01Response {
   SUCCESS: string;
   PM_Txn_Vrty_Cd?: string;
@@ -50,6 +67,7 @@ function httpsGet(
 }
 
 export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
+  lastCcbDiag = "ok";
   try {
     const sessUrl = `${CCB_BASE}/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=100119`;
     const r1 = await httpsGet(sessUrl, { "User-Agent": CCB_UA, Referer: CCB_REFERER }, 8000);
@@ -59,7 +77,10 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
         ? [r1.headers["set-cookie"] as string]
         : [];
     const cookieHeader = setCookies.map((c) => c.split(";")[0]).join("; ");
-    if (!cookieHeader) return null;
+    if (!cookieHeader) {
+      lastCcbDiag = "no-cookie"; // 第一步连上了但没拿到 session cookie
+      return null;
+    }
 
     const priceUrl = `${CCB_BASE}/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=NGJS01`;
     const r2 = await httpsGet(
@@ -69,11 +90,17 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
     );
 
     const data = JSON.parse(r2.body.trim()) as CcbNgjs01Response;
-    if (data.SUCCESS !== "true") return null;
+    if (data.SUCCESS !== "true") {
+      lastCcbDiag = "no-data";
+      return null;
+    }
 
     const buy = Number(data.Cst_Buy_Prc);
     const sell = Number(data.Cst_Sell_Prc);
-    if (!Number.isFinite(buy) || buy <= 0) return null;
+    if (!Number.isFinite(buy) || buy <= 0) {
+      lastCcbDiag = "no-data";
+      return null;
+    }
 
     const now = new Date().toLocaleString("zh-CN");
     const r2f = (n: number) => Math.round(n * 100) / 100;
@@ -90,6 +117,7 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
       stale: false,
     };
   } catch (e) {
+    lastCcbDiag = diagFromError(e);
     console.warn("[bankGold] 建行官网直连失败，回退 huimiao:", e);
     return null;
   }

@@ -25,6 +25,26 @@ const icbcAgent = new https.Agent({
   secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT as number,
 });
 
+// 直连诊断：记录上一次抓取的失败原因（error.code 优先，如 EPROTO/ETIMEDOUT/ENOTFOUND）。
+// 设备 nodejs-mobile 上官网直连一直 ✗ 但原因被吞在 console.warn 里，诊断页拿不到；
+// 用模块级变量把原因透出，经 bankGold→payload→DiagPanel 显示，定位设备到底卡在握手还是别处。
+let lastIcbcDiag = "ok";
+export function getIcbcDirectDiag(): string {
+  return lastIcbcDiag;
+}
+
+// 从异常提炼简短诊断码：网络层错误有 e.code（最有用）；HTTP 状态错误 message 以 "HTTP " 开头。
+function diagFromError(e: unknown): string {
+  const code = (e as { code?: string }).code;
+  if (code) return code;
+  if (e instanceof Error) {
+    if (e.message.startsWith("HTTP ")) return e.message;
+    if (e.message === "timeout") return "timeout";
+    return e.message || "error";
+  }
+  return "error";
+}
+
 function extractField(html: string, field: string): number | null {
   const re = new RegExp(`id="${field}_${PRODUCT_CODE}"[^>]*>([^<]+)`, "i");
   const m = html.match(re);
@@ -51,6 +71,7 @@ function httpsGet(url: string, headers: Record<string, string>, timeoutMs: numbe
 }
 
 export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
+  lastIcbcDiag = "ok";
   try {
     const buf = await httpsGet(ICBC_GOLD_URL, { "User-Agent": ICBC_UA, Accept: "text/html" }, 8000);
 
@@ -60,7 +81,10 @@ export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
     const active = extractField(html, "activeprice"); // 主动积存价(你买入)
     const high = extractField(html, "highprice");
     const low = extractField(html, "lowprice");
-    if (!active) return null;
+    if (!active) {
+      lastIcbcDiag = "no-data"; // 握手+解码都成，但没解出有效价格（页面结构变了？）
+      return null;
+    }
 
     const now = new Date().toLocaleString("zh-CN");
     const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -79,6 +103,7 @@ export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
       stale: false,
     };
   } catch (e) {
+    lastIcbcDiag = diagFromError(e);
     console.warn("[bankGold] 工行官网直连失败，回退 huimiao:", e);
     return null;
   }

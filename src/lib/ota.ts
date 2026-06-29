@@ -137,15 +137,36 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
 
   try {
     const res = await fetch(LATEST_RELEASE_API, {
-      headers: { Accept: "application/vnd.github+json" },
+      // User-Agent 是 GitHub API 的硬要求（匿名缺 UA 直接 403）。
+      // ⚠️ 在 Capacitor(Chromium) WebView 里 fetch 设 User-Agent 会被静默丢弃(crbug 571722)，
+      //    但 WebView 本就自动带浏览器 UA，所以设备上不会因「缺 UA」403——设备 403 实为匿名限流
+      //    (60次/小时/IP)。这里仍显式带上：无害，且未来若改走内嵌 Node(undici 不自动带 UA)时受益。
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "gold-phone-app" },
       cache: "no-store",
     });
     if (!res.ok) {
-      // 404 常见于「还没发过 Release」——不当错误，按「已是最新」处理但给出说明
-      return {
-        ...base,
-        error: res.status === 404 ? "仓库还没有任何 Release" : `检查更新失败（HTTP ${res.status}）`,
-      };
+      // 404 常见于「还没发过 Release」——不当错误，按「已是最新」处理但给出说明。
+      // 403 多为匿名限流（X-RateLimit-Remaining:0）：把恢复时间算出来给人话，而非裸 HTTP 403。
+      let error: string;
+      if (res.status === 404) {
+        error = "仓库还没有任何 Release";
+      } else if (res.status === 403) {
+        const remaining = res.headers.get("X-RateLimit-Remaining");
+        if (remaining === "0") {
+          const reset = Number(res.headers.get("X-RateLimit-Reset"));
+          if (Number.isFinite(reset) && reset > 0) {
+            const mins = Math.max(1, Math.ceil((reset * 1000 - Date.now()) / 60000));
+            error = `请求过于频繁（GitHub 限流），约 ${mins} 分钟后重试`;
+          } else {
+            error = "请求过于频繁（GitHub 限流），请稍后再试";
+          }
+        } else {
+          error = "检查更新失败（HTTP 403，可能被限流或被拒绝）";
+        }
+      } else {
+        error = `检查更新失败（HTTP ${res.status}）`;
+      }
+      return { ...base, error };
     }
     const rel = (await res.json()) as GitHubRelease;
     const tag = rel.tag_name || rel.name || "";

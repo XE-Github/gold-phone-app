@@ -62,6 +62,8 @@ type RouteResult = {
   warnings: string[];
   error?: string;
   quotes?: Quote[];
+  // bank-gold 专有：工行/建行官网直连诊断（成败原因码），用于 ③ 显示失败具体原因。
+  bankDirectDiag?: { icbc: string; ccb: string };
 };
 
 function Row({ k, v, good }: { k: string; v: string; good?: boolean | null }) {
@@ -105,16 +107,31 @@ function instrumentRows(quotes: Quote[] | undefined) {
   });
 }
 
+// 把直连失败原因码翻成人话：EPROTO=设备 OpenSSL 不支持老旧握手（最关心的判别点）；
+// 超时/DNS=网络或环境；HTTP xxx=连上但被拒；no-data/no-cookie/ok=连上但没解出有效数据。
+function bankFailReason(code: string | undefined): string {
+  if (!code) return "未拿到官网直连数据";
+  if (code === "EPROTO") return "未拿到（EPROTO：设备 OpenSSL 不支持老旧握手）";
+  if (code === "ETIMEDOUT" || code === "timeout") return "未拿到（超时）";
+  if (code === "ENOTFOUND") return "未拿到（DNS 解析失败）";
+  if (code === "ECONNRESET" || code === "ECONNREFUSED") return `未拿到（${code}：连接被断/拒）`;
+  if (code.startsWith("HTTP ")) return `未拿到（${code}）`;
+  if (code === "no-data" || code === "no-cookie" || code === "ok")
+    return "未拿到（连上但无有效数据）";
+  return `未拿到（${code}）`;
+}
+
 // 从 bank-gold 的 quotes 里挑出工行/建行官网直连的实测结论。
 // 判定与数据层一致：source 含「工行官网」「建行官网」= 老旧 TLS 直连成功拿到真实数据。
-function bankTlsVerdict(quotes: Quote[] | undefined) {
+// diag（来自 payload.bankDirectDiag）在失败时给出具体原因，区分握手失败 vs 别的问题。
+function bankTlsVerdict(quotes: Quote[] | undefined, diag?: { icbc: string; ccb: string }) {
   const list = quotes ?? [];
   const icbc = list.find((q) => /工行/.test(q.source) && /官网/.test(q.source));
   const ccb = list.find((q) => /建行/.test(q.source) && /官网/.test(q.source));
   return {
-    icbc: icbc ? `成功（${icbc.source}）` : "未拿到官网直连数据",
+    icbc: icbc ? `成功（${icbc.source}）` : bankFailReason(diag?.icbc),
     icbcGood: Boolean(icbc),
-    ccb: ccb ? `成功（${ccb.source}）` : "未拿到官网直连数据",
+    ccb: ccb ? `成功（${ccb.source}）` : bankFailReason(diag?.ccb),
     ccbGood: Boolean(ccb),
   };
 }
@@ -178,6 +195,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
           warnings?: string[];
           series?: Record<string, unknown[]>;
           sources?: Record<string, string>;
+          bankDirectDiag?: { icbc: string; ccb: string };
         };
         const quotes = anyData.quotes;
         let count: number;
@@ -192,7 +210,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
           count = 0;
         }
         const warnings = anyData.warnings ?? [];
-        return { ok: true, ms, count, warnings, quotes };
+        return { ok: true, ms, count, warnings, quotes, bankDirectDiag: anyData.bankDirectDiag };
       } catch (e) {
         const ms = Math.round(performance.now() - t0);
         return {
@@ -269,7 +287,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     append(`历史 /api/history → ${h.ok ? `成功 ${h.count} 条 / ${h.ms}ms` : `失败：${h.error}`}`);
 
     if (b.ok) {
-      const v = bankTlsVerdict(b.quotes);
+      const v = bankTlsVerdict(b.quotes, b.bankDirectDiag);
       append(`工行官网直连：${v.icbc}`);
       append(`建行官网直连：${v.ccb}`);
     }
@@ -374,7 +392,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     if (!bankR) lines.push("未探测");
     else if (!bankR.ok) lines.push("积存金接口未成功，无法判定");
     else {
-      const v = bankTlsVerdict(bankR.quotes);
+      const v = bankTlsVerdict(bankR.quotes, bankR.bankDirectDiag);
       lines.push(`${yn(v.icbcGood)} 工行: ${v.icbc}`);
       lines.push(`${yn(v.ccbGood)} 建行: ${v.ccb}`);
     }
@@ -421,7 +439,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     append(`生成诊断报告 → ${clipboardOk ? "已写剪贴板 + 显示全文" : "显示全文(剪贴板不可用)"}`);
   }, [buildReport, append]);
 
-  const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes) : null;
+  const bankTls = bankR?.ok ? bankTlsVerdict(bankR.quotes, bankR.bankDirectDiag) : null;
 
   const overlay = typeof onClose === "function";
   return (
@@ -602,6 +620,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
             <Row k="建行官网直连" v={bankTls.ccb} good={bankTls.ccbGood} />
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
               成功=内嵌 Node 的老旧 TLS 握手通了，拿到官网真实价；失败=自动回退聚合源（数据仍在，仅这两家非直连），属预期降级。
+              失败时括号内为具体原因：EPROTO=设备不支持老旧握手、超时/DNS=网络问题。
             </p>
           </>
         ) : null}

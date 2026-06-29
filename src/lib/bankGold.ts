@@ -12,8 +12,8 @@
 
 import type { Quote } from "./types";
 import { BANK_GOLD_PRODUCTS, type ProductDef } from "./bankProducts";
-import { fetchIcbcAccrualQuote } from "./icbcDirect";
-import { fetchCcbAccrualQuote } from "./ccbDirect";
+import { fetchIcbcAccrualQuote, getIcbcDirectDiag } from "./icbcDirect";
+import { fetchCcbAccrualQuote, getCcbDirectDiag } from "./ccbDirect";
 
 // 产品清单已抽到 ./bankProducts（纯数据，零 node:* 依赖），供客户端组件复用。
 export { BANK_GOLD_PRODUCTS };
@@ -67,7 +67,11 @@ interface JdjrResponse {
 export async function fetchBankGoldQuotes(
   sgeAu9999Price: number | undefined,
   xauCnyPrice: number | undefined,
-): Promise<{ quotes: Quote[]; realCount: number }> {
+): Promise<{
+  quotes: Quote[];
+  realCount: number;
+  bankDirectDiag: { icbc: string; ccb: string };
+}> {
   const quotes: Quote[] = [];
 
   const [huimiaoQuotes, jdjrQuotes, icbcDirectQuote, ccbDirectQuote] = await Promise.allSettled([
@@ -126,7 +130,9 @@ export async function fetchBankGoldQuotes(
   const realCount = quotes.filter((q) => isRealSource(q.source)).length;
   console.log(`[bankGold] ✅ 获取 ${quotes.length} 个银行数据，其中 ${realCount} 个真实数据`);
 
-  return { quotes, realCount };
+  // 官网直连诊断（成败原因）：allSettled 后两个 fetch 已写好各自 lastDiag，此处读取随 payload 透出。
+  const bankDirectDiag = { icbc: getIcbcDirectDiag(), ccb: getCcbDirectDiag() };
+  return { quotes, realCount, bankDirectDiag };
 }
 
 export function isRealSource(source: string): boolean {

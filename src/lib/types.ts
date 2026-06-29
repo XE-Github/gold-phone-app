@@ -49,4 +49,6 @@ export type BankGoldPayload = {
   total: number;
   warnings: string[];
   serverTime: number;
+  // 工行/建行官网直连诊断（成败原因码，如 ok/EPROTO/timeout/no-data）。仅诊断页消费，主页忽略。
+  bankDirectDiag?: { icbc: string; ccb: string };
 };

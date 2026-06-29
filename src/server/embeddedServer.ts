@@ -41,7 +41,10 @@ export async function buildBankGold(): Promise<BankGoldPayload> {
     const sgeAu = quotes.find((q) => q.instrumentId === "sge-au9999")?.price;
     const xauCny = quotes.find((q) => q.instrumentId === "xau-cny")?.price;
 
-    const { quotes: bankQuotes, realCount } = await fetchBankGoldQuotes(sgeAu, xauCny);
+    const { quotes: bankQuotes, realCount, bankDirectDiag } = await fetchBankGoldQuotes(
+      sgeAu,
+      xauCny,
+    );
 
     const warnings: string[] = [];
     if (realCount === 0) {
@@ -53,6 +56,7 @@ export async function buildBankGold(): Promise<BankGoldPayload> {
       total: bankQuotes.length,
       warnings,
       serverTime: Date.now(),
+      bankDirectDiag,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
