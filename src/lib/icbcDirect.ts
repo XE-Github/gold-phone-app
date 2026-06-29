@@ -2,10 +2,14 @@
 // 数据源：https://mybank.icbc.com.cn/.../goldaccrual_query_out.jsp（公开页，GBK）。
 // ⚠️ TLS：ICBC 站用老旧 TLS（需 legacy renegotiation），全局 fetch/undici 无法配置，
 //    必须 node:https + SSL_OP_LEGACY_SERVER_CONNECT 才能握手。
+// ⚠️ GBK 解码必须用 iconv-lite，不能用 new TextDecoder("gbk")：内嵌 nodejs-mobile(Node18)
+//    是 small-icu，不含 gbk legacy 编码表 → 设备上 TextDecoder('gbk') 抛 RangeError
+//    （同 sina.ts 的 gb18030 坑）。iconv-lite 纯 JS、可被 esbuild 打进 main.js。
 // ⚠️ 不取 sellprice：实测 activeprice===sellprice，该页不暴露真实点差；设 bid 会伪造 0 点差。
 
 import https from "node:https";
 import crypto from "node:crypto";
+import iconv from "iconv-lite";
 import type { Quote } from "./types";
 
 const ICBC_GOLD_URL =
@@ -50,12 +54,8 @@ export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
   try {
     const buf = await httpsGet(ICBC_GOLD_URL, { "User-Agent": ICBC_UA, Accept: "text/html" }, 8000);
 
-    let html: string;
-    try {
-      html = new TextDecoder("gbk").decode(buf);
-    } catch {
-      html = buf.toString("utf8");
-    }
+    // iconv-lite 纯 JS 解 GBK（绕开设备 small-icu 无 gbk 编码表的坑，见文件头注释）。
+    const html = iconv.decode(buf, "gbk");
 
     const active = extractField(html, "activeprice"); // 主动积存价(你买入)
     const high = extractField(html, "highprice");

@@ -128,19 +128,15 @@ export default function Home() {
       <footer className="mt-6 text-center text-[11px] leading-relaxed text-slate-600">
         <p>学习辅助工具，非投资建议，投资有风险。</p>
         <div className="mt-2 flex items-center justify-center gap-2">
-          {/* App 内不跳 /diag 路由(静态导出子路由在 Capacitor 打不开)，改为同页弹层 */}
+          {/* App 内不跳 /diag 路由(静态导出子路由在 Capacitor 打不开)，改为同页弹层。
+              「通知诊断」入口已删：原页查浏览器 SW/安全上下文，原生 App 通知走 Capacitor
+              原生(已被装机诊断④节覆盖)，那套浏览器诊断在 App 内不适用且打不开。 */}
           <button
             onClick={() => setShowDiag(true)}
             className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400 active:bg-white/5"
           >
             装机诊断
           </button>
-          <a
-            href="/notify-check"
-            className="inline-flex min-h-9 items-center rounded-lg border border-white/5 px-3 text-slate-400"
-          >
-            通知诊断
-          </a>
         </div>
       </footer>
 

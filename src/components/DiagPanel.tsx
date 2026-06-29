@@ -170,18 +170,27 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
         const data = await requestRoute(route);
         const ms = Math.round(performance.now() - t0);
         // quotes/bank-gold 有 quotes[]；history 是 {series, sources}
+        // ⚠️ history 的 series 是 Record<标的id, Point[]>（对象，不是数组）——
+        // 旧代码 Array.isArray(series) 恒 false → count 恒 0（误报 history 永远空）。
+        // 正确口径：所有标的的分时点数之和（拿到几个分时点）。
         const anyData = data as {
           quotes?: Quote[];
           warnings?: string[];
-          series?: unknown[];
-          sources?: string[];
+          series?: Record<string, unknown[]>;
+          sources?: Record<string, string>;
         };
         const quotes = anyData.quotes;
-        const count = quotes
-          ? quotes.length
-          : Array.isArray(anyData.series)
-            ? anyData.series.length
-            : 0;
+        let count: number;
+        if (quotes) {
+          count = quotes.length;
+        } else if (anyData.series && typeof anyData.series === "object") {
+          count = Object.values(anyData.series).reduce(
+            (sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0),
+            0,
+          );
+        } else {
+          count = 0;
+        }
         const warnings = anyData.warnings ?? [];
         return { ok: true, ms, count, warnings, quotes };
       } catch (e) {
