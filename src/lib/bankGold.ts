@@ -12,8 +12,8 @@
 
 import type { Quote, BankDirectDiag } from "./types";
 import { BANK_GOLD_PRODUCTS, type ProductDef } from "./bankProducts";
-import { fetchIcbcAccrualQuote, getIcbcDirectDiag } from "./icbcDirect";
-import { fetchCcbAccrualQuote, getCcbDirectDiag } from "./ccbDirect";
+import { fetchIcbcAccrualQuote, type IcbcResult } from "./icbcDirect";
+import { fetchCcbAccrualQuote, type CcbResult } from "./ccbDirect";
 
 // 产品清单已抽到 ./bankProducts（纯数据，零 node:* 依赖），供客户端组件复用。
 export { BANK_GOLD_PRODUCTS };
@@ -83,8 +83,18 @@ export async function fetchBankGoldQuotes(
 
   const huimiaoData = huimiaoQuotes.status === "fulfilled" ? huimiaoQuotes.value : [];
   const jdjrData = jdjrQuotes.status === "fulfilled" ? jdjrQuotes.value : [];
-  const icbcDirect = icbcDirectQuote.status === "fulfilled" ? icbcDirectQuote.value : null;
-  const ccbDirect = ccbDirectQuote.status === "fulfilled" ? ccbDirectQuote.value : null;
+  // v0.1.12：两行 fetch 改为返回 {quote, diag}，diag 随本次调用带出（无模块级单例竞态）。
+  // allSettled 若整个 reject（极少见），diag 退化为通用错误码。
+  const icbcResult: IcbcResult =
+    icbcDirectQuote.status === "fulfilled"
+      ? icbcDirectQuote.value
+      : { quote: null, diag: { code: "rejected" } };
+  const ccbResult: CcbResult =
+    ccbDirectQuote.status === "fulfilled"
+      ? ccbDirectQuote.value
+      : { quote: null, diag: { code: "rejected" } };
+  const icbcDirect = icbcResult.quote;
+  const ccbDirect = ccbResult.quote;
 
   for (const product of BANK_GOLD_PRODUCTS) {
     if (product.instrumentId === "icbc-acc-gold" && icbcDirect) {
@@ -130,8 +140,8 @@ export async function fetchBankGoldQuotes(
   const realCount = quotes.filter((q) => isRealSource(q.source)).length;
   console.log(`[bankGold] ✅ 获取 ${quotes.length} 个银行数据，其中 ${realCount} 个真实数据`);
 
-  // 官网直连诊断（成败原因）：allSettled 后两个 fetch 已写好各自 lastDiag，此处读取随 payload 透出。
-  const bankDirectDiag = { icbc: getIcbcDirectDiag(), ccb: getCcbDirectDiag() };
+  // 官网直连诊断（成败原因 + 设备实收证据）：取本次调用各自返回的 diag，随 payload 透出。
+  const bankDirectDiag = { icbc: icbcResult.diag, ccb: ccbResult.diag };
   return { quotes, realCount, bankDirectDiag };
 }
 

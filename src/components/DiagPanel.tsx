@@ -153,8 +153,11 @@ function bankTlsVerdict(
   diag?: { icbc: BankDirectDiag; ccb: BankDirectDiag },
 ) {
   const list = quotes ?? [];
-  const icbc = list.find((q) => /工行/.test(q.source) && /官网/.test(q.source));
-  const ccb = list.find((q) => /建行/.test(q.source) && /官网/.test(q.source));
+  // ⚠️ 按 instrumentId + source 含「官网」判定，不要用 /工行/、/建行/ 子串匹配：
+  // 真实 source 是「工商银行官网…」「建设银行官网…」，不含「工行」「建行」字样，
+  // 旧正则恒不匹配 → 即使直连成功也误判为 ✗（v0.1.12 修）。
+  const icbc = list.find((q) => q.instrumentId === "icbc-acc-gold" && /官网/.test(q.source));
+  const ccb = list.find((q) => q.instrumentId === "ccb-acc-gold" && /官网/.test(q.source));
   return {
     icbc: icbc ? `成功（${icbc.source}）` : bankFailReason(diag?.icbc),
     icbcGood: Boolean(icbc),

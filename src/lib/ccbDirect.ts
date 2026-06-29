@@ -17,11 +17,9 @@ const ccbAgent = new https.Agent({
   secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT as number,
 });
 
-// 直连诊断：同 icbcDirect（v0.1.11 加宽），记录结论 + 失败时设备实收证据供诊断页显示。
-let lastCcbDiag: BankDirectDiag = { code: "ok" };
-export function getCcbDirectDiag(): BankDirectDiag {
-  return lastCcbDiag;
-}
+// 直连诊断：结论 + 失败时设备实收证据。v0.1.12 改为随返回值带出（不再用模块级单例），
+// 原因同 icbcDirect：stream 定时 refreshBank 与诊断页 probe 并发调本函数会互相覆盖单例。
+export type CcbResult = { quote: Quote | null; diag: BankDirectDiag };
 
 function diagFromError(e: unknown): string {
   const code = (e as { code?: string }).code;
@@ -76,8 +74,7 @@ function httpsGet(
   });
 }
 
-export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
-  lastCcbDiag = { code: "ok" };
+export async function fetchCcbAccrualQuote(): Promise<CcbResult> {
   try {
     const sessUrl = `${CCB_BASE}/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=100119`;
     const r1 = await httpsGet(sessUrl, { "User-Agent": CCB_UA, Referer: CCB_REFERER }, 8000);
@@ -90,15 +87,17 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
     if (!cookieHeader) {
       // 第一步连上了但没拿到 session cookie：带上设备实收证据，看第一步到底返回了什么
       // （挑战页?空体?重定向?）——这是设备最可能卡住的一步。
-      lastCcbDiag = {
-        code: "no-cookie",
-        httpStatus: r1.status,
-        bytes: r1.body.length,
-        contentType: headerStr(r1.headers["content-type"]),
-        location: headerStr(r1.headers["location"]),
-        snippet: safeSnippet(r1.body),
+      return {
+        quote: null,
+        diag: {
+          code: "no-cookie",
+          httpStatus: r1.status,
+          bytes: r1.body.length,
+          contentType: headerStr(r1.headers["content-type"]),
+          location: headerStr(r1.headers["location"]),
+          snippet: safeSnippet(r1.body),
+        },
       };
-      return null;
     }
 
     const priceUrl = `${CCB_BASE}/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=NGJS01`;
@@ -108,64 +107,53 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
       8000,
     );
 
+    const ngjsDiag = (): BankDirectDiag => ({
+      code: "no-data",
+      httpStatus: r2.status,
+      bytes: r2.body.length,
+      contentType: headerStr(r2.headers["content-type"]),
+      snippet: safeSnippet(r2.body),
+    });
+
     // JSON.parse 包 try：设备若收到非 JSON 的拦截/HTML 页，原来会裸抛进 catch、看不清；
     // 这里直接记 no-data + 片段，把「期望 JSON 却拿到啥」说清楚。
     let data: CcbNgjs01Response;
     try {
       data = JSON.parse(r2.body.trim()) as CcbNgjs01Response;
     } catch {
-      lastCcbDiag = {
-        code: "no-data",
-        httpStatus: r2.status,
-        bytes: r2.body.length,
-        contentType: headerStr(r2.headers["content-type"]),
-        snippet: safeSnippet(r2.body),
-      };
-      return null;
+      return { quote: null, diag: ngjsDiag() };
     }
 
     if (data.SUCCESS !== "true") {
-      lastCcbDiag = {
-        code: "no-data",
-        httpStatus: r2.status,
-        bytes: r2.body.length,
-        contentType: headerStr(r2.headers["content-type"]),
-        snippet: safeSnippet(r2.body),
-      };
-      return null;
+      return { quote: null, diag: ngjsDiag() };
     }
 
     const buy = Number(data.Cst_Buy_Prc);
     const sell = Number(data.Cst_Sell_Prc);
     if (!Number.isFinite(buy) || buy <= 0) {
-      lastCcbDiag = {
-        code: "no-data",
-        httpStatus: r2.status,
-        bytes: r2.body.length,
-        contentType: headerStr(r2.headers["content-type"]),
-        snippet: safeSnippet(r2.body),
-      };
-      return null;
+      return { quote: null, diag: ngjsDiag() };
     }
 
     const now = new Date().toLocaleString("zh-CN");
     const r2f = (n: number) => Math.round(n * 100) / 100;
 
     return {
-      instrumentId: "ccb-acc-gold",
-      price: r2f(buy),
-      ask: r2f(buy),
-      bid: Number.isFinite(sell) && sell > 0 ? r2f(sell) : undefined,
-      change: undefined,
-      changePercent: undefined,
-      timestamp: data.Tms || now,
-      source: "建设银行官网·积存金实时牌价",
-      stale: false,
+      quote: {
+        instrumentId: "ccb-acc-gold",
+        price: r2f(buy),
+        ask: r2f(buy),
+        bid: Number.isFinite(sell) && sell > 0 ? r2f(sell) : undefined,
+        change: undefined,
+        changePercent: undefined,
+        timestamp: data.Tms || now,
+        source: "建设银行官网·积存金实时牌价",
+        stale: false,
+      },
+      diag: { code: "ok" },
     };
   } catch (e) {
     // 网络/握手层错误（EPROTO/超时/DNS 等），无 HTTP 状态可记。
-    lastCcbDiag = { code: diagFromError(e) };
     console.warn("[bankGold] 建行官网直连失败，回退 huimiao:", e);
-    return null;
+    return { quote: null, diag: { code: diagFromError(e) } };
   }
 }

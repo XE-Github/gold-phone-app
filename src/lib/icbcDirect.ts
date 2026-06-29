@@ -25,14 +25,13 @@ const icbcAgent = new https.Agent({
   secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT as number,
 });
 
-// 直连诊断：记录上一次抓取的结论 + 失败时设备「实际收到了什么」的取证。
-// 设备 nodejs-mobile 上官网直连一直 ✗（v0.1.10 报告为「连上但无有效数据」），但握手已通、
-// 究竟收到验证页/空体/重定向看不清；v0.1.11 把 httpStatus/bytes/contentType/snippet 一并透出，
-// 经 bankGold→payload→DiagPanel 显示，定位设备到底卡在哪一层（见 types.BankDirectDiag）。
-let lastIcbcDiag: BankDirectDiag = { code: "ok" };
-export function getIcbcDirectDiag(): BankDirectDiag {
-  return lastIcbcDiag;
-}
+// 直连诊断：结论 + 失败时设备「实际收到了什么」的取证（见 types.BankDirectDiag）。
+// ⚠️ v0.1.12 改为随返回值带出（IcbcResult.diag），不再用模块级单例：
+//   设备上 streamManager 定时 refreshBank 与诊断页 probe 会并发调本函数，
+//   try 顶若重置共享单例为 {code:"ok"}，另一路读到的就是被覆盖的 ok（无证据字段），
+//   表现为诊断页恒显「连上但无有效数据」却没有任何实收证据——这正是 v0.1.11 真机报告的假象。
+//   每次调用各自返回自己的 diag，彻底无竞态。
+export type IcbcResult = { quote: Quote | null; diag: BankDirectDiag };
 
 // 从异常提炼简短诊断码：网络层错误有 e.code（最有用）；HTTP 状态错误 message 以 "HTTP " 开头。
 function diagFromError(e: unknown): string {
@@ -95,8 +94,7 @@ function headerStr(v: string | string[] | undefined): string | undefined {
   return v;
 }
 
-export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
-  lastIcbcDiag = { code: "ok" };
+export async function fetchIcbcAccrualQuote(): Promise<IcbcResult> {
   try {
     const res = await httpsGet(
       ICBC_GOLD_URL,
@@ -110,15 +108,17 @@ export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
     const bytes = res.buf.length;
 
     if (res.status >= 400) {
-      lastIcbcDiag = {
-        code: `HTTP ${res.status}`,
-        httpStatus: res.status,
-        bytes,
-        contentType,
-        location,
-        snippet: safeSnippet(iconv.decode(res.buf, "gbk")),
+      return {
+        quote: null,
+        diag: {
+          code: `HTTP ${res.status}`,
+          httpStatus: res.status,
+          bytes,
+          contentType,
+          location,
+          snippet: safeSnippet(iconv.decode(res.buf, "gbk")),
+        },
       };
-      return null;
     }
 
     // iconv-lite 纯 JS 解 GBK（绕开设备 small-icu 无 gbk 编码表的坑，见文件头注释）。
@@ -130,37 +130,41 @@ export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
     if (!active) {
       // 握手+解码都成，但没解出有效价格：可能页面结构变了，也可能收到的是挑战/重定向页。
       // 带上设备实收证据（状态/字节/类型/重定向/片段）以便看清到底收到了什么。
-      lastIcbcDiag = {
-        code: "no-data",
-        httpStatus: res.status,
-        bytes,
-        contentType,
-        location,
-        snippet: safeSnippet(html),
+      return {
+        quote: null,
+        diag: {
+          code: "no-data",
+          httpStatus: res.status,
+          bytes,
+          contentType,
+          location,
+          snippet: safeSnippet(html),
+        },
       };
-      return null;
     }
 
     const now = new Date().toLocaleString("zh-CN");
     const r2 = (n: number) => Math.round(n * 100) / 100;
 
     return {
-      instrumentId: "icbc-acc-gold",
-      price: r2(active),
-      ask: r2(active),
-      bid: undefined, // 故意不设：见文件头
-      dayHigh: high != null ? r2(high) : undefined,
-      dayLow: low != null ? r2(low) : undefined,
-      change: undefined,
-      changePercent: undefined,
-      timestamp: now,
-      source: "工商银行官网·积存金实时牌价",
-      stale: false,
+      quote: {
+        instrumentId: "icbc-acc-gold",
+        price: r2(active),
+        ask: r2(active),
+        bid: undefined, // 故意不设：见文件头
+        dayHigh: high != null ? r2(high) : undefined,
+        dayLow: low != null ? r2(low) : undefined,
+        change: undefined,
+        changePercent: undefined,
+        timestamp: now,
+        source: "工商银行官网·积存金实时牌价",
+        stale: false,
+      },
+      diag: { code: "ok" },
     };
   } catch (e) {
     // 走到 catch = 网络/握手层错误（EPROTO/超时/DNS 等），无 HTTP 状态可记。
-    lastIcbcDiag = { code: diagFromError(e) };
     console.warn("[bankGold] 工行官网直连失败，回退 huimiao:", e);
-    return null;
+    return { quote: null, diag: { code: diagFromError(e) } };
   }
 }
