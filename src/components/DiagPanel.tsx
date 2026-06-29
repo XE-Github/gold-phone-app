@@ -30,6 +30,7 @@ import {
   getLocalEventLog,
   reportDiagFeedback,
 } from "@/lib/analytics";
+import type { FeedbackResult } from "@/lib/analytics";
 import type { Quote, BankDirectDiag } from "@/lib/types";
 
 // ── 运行环境探测（不静态依赖 Capacitor，运行期读 window） ──
@@ -208,11 +209,21 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     lastEvents: string[];
   } | null>(null);
 
-  // 日志反馈：诊断跑完若发现错误，静默上报结构化摘要，并在页面显示 6 位反馈编号。
-  // feedbackCode：null=未上报(无错误/未派发)；"NNNNNN"=已派发上传的编号；
-  //               "__none__"=有错误但未派发(未同意/无通道)→ 显示诚实文案而非假编号。
+  // 日志反馈（云端回执模型）：诊断跑完若发现错误，上报结构化摘要并取回「云端落库后才下发」的编号。
+  // 「显示了编号」⟺「仓库一定有记录」。四相位：
+  //   idle    = 无错误/未触发，不渲染任何卡片；
+  //   sending = 已派发、等云端回执（最长约 9 秒）；
+  //   ok      = 拿到云端依次编号 fid（记录确已落库）→ 显示编号；
+  //   failed  = 已派发但无回执(超时/没网/没VPN/旧Worker/502)→ 诚实显「上报失败」，不显假编号；
+  //   skipped = 未同意/无通道 → 显「未上报」。
   // fbSentRef：整页只自动上报一次的守卫（探测会多次 setState 触发 effect 重跑）。
-  const [feedbackCode, setFeedbackCode] = useState<string | null>(null);
+  type FbState =
+    | { phase: "idle" }
+    | { phase: "sending" }
+    | { phase: "ok"; fid: string }
+    | { phase: "failed" }
+    | { phase: "skipped" };
+  const [fb, setFb] = useState<FbState>({ phase: "idle" });
   const fbSentRef = useRef(false);
 
   const append = useCallback((line: string) => {
@@ -594,7 +605,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     return { hasError, summary };
   }, [env, quotesR, bankR, historyR, streamR]);
 
-  // 自动触发：四路探测全 settled（含 8s 推流）后判错一次；有错则静默上报并显示编号。
+  // 自动触发：四路探测全 settled（含 8s 推流）后判错一次；有错则上报并等云端回执编号。
   // 用 fbSentRef 守卫整页只跑一次（探测期间多次 setState 会触发本 effect 重跑）。
   useEffect(() => {
     if (fbSentRef.current) return;
@@ -603,15 +614,22 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     fbSentRef.current = true;
     const { hasError, summary } = collectErrors();
     if (!hasError) return; // 没错误：不上报、不显示编号，诊断页与之前一致
-    void reportDiagFeedback(summary).then((fid) => {
-      // fid=编号→已派发；null→未同意/无通道，显示诚实文案（哨兵 "__none__"）而非假编号。
-      setFeedbackCode(fid ?? "__none__");
-      append(
-        fid
-          ? `检测到异常 → 已自动上报，反馈编号 ${fid}`
-          : "检测到异常 → 本机未上报（未同意或无上传通道）",
-      );
-    });
+    // 异步起步：避免在 effect 体内同步 setState（cascading renders）。先「上报中」，再等云端回执。
+    void (async () => {
+      setFb({ phase: "sending" }); // 云端回执需一个网络往返，最长约 9 秒
+      append("检测到异常 → 正在上报，等待云端回执编号…");
+      const r: FeedbackResult = await reportDiagFeedback(summary);
+      if (r.status === "ok") {
+        setFb({ phase: "ok", fid: r.fid });
+        append(`上报成功 → 云端反馈编号 ${r.fid}（记录已落库）`);
+      } else if (r.status === "skipped") {
+        setFb({ phase: "skipped" });
+        append("本机未上报（未同意匿名统计或无上传通道）");
+      } else {
+        setFb({ phase: "failed" });
+        append("上报失败（超时/网络不通，可能需开 VPN）→ 未生成编号");
+      }
+    })();
   }, [quotesR, bankR, historyR, streamR, collectErrors, append]);
 
   const overlay = typeof onClose === "function";
@@ -636,20 +654,31 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
         一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点下方按钮生成全文，复制发回即可。
       </p>
 
-      {/* 日志反馈：诊断发现异常时，已自动上报错误摘要，显示 6 位反馈编号供作者定位。
-          feedbackCode 为编号串→显示编号块；为 "__none__"→显示诚实「未上报」文案；为 null→不渲染。 */}
-      {feedbackCode && feedbackCode !== "__none__" && (
+      {/* 日志反馈（云端回执）：诊断异常时上报错误摘要，云端落库成功后才下发依次编号。
+          四相位：sending=等回执；ok=显示云端编号；failed=诚实显「上报失败」不显假编号；skipped=未上报。 */}
+      {fb.phase === "sending" && (
+        <div className="mt-3 rounded-xl border border-sky-400/40 bg-sky-500/10 px-4 py-3 text-[12px] text-sky-200">
+          ⏳ 检测到异常，正在上报…（需联网，等待云端回执编号，最长约 9 秒）
+        </div>
+      )}
+      {fb.phase === "ok" && (
         <div className="mt-3 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3">
-          <div className="text-sm font-semibold text-rose-200">⚠️ 检测到异常，已自动上报</div>
+          <div className="text-sm font-semibold text-rose-200">⚠️ 检测到异常，已上报（云端已收到）</div>
           <div className="mt-2 text-center font-mono text-3xl font-bold tracking-[0.2em] tabular-nums text-rose-100">
-            {feedbackCode}
+            {fb.fid}
           </div>
           <div className="mt-2 text-center text-[11px] text-rose-200/80">
             把这 6 位反馈编号告诉作者，即可精确定位本次诊断。
           </div>
         </div>
       )}
-      {feedbackCode === "__none__" && (
+      {fb.phase === "failed" && (
+        <div className="mt-3 rounded-xl border border-red-400/50 bg-red-500/10 px-4 py-3 text-[12px] text-red-200">
+          ⚠️ 检测到异常，但上报失败（未拿到云端回执）。请检查网络/VPN（后台域名国内可能被污染），
+          稍后重进诊断重试，或点下方按钮生成全文手动发回。
+        </div>
+      )}
+      {fb.phase === "skipped" && (
         <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200">
           检测到异常，但本机未上报（未同意匿名统计或暂无上传通道）。可点下方按钮生成全文手动发回。
         </div>

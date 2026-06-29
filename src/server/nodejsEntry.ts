@@ -75,6 +75,79 @@ function handleTrack(msg: TrackMsg): void {
   }
 }
 
+// 带回执的上报（仅日志反馈）：https POST 到 Worker，缓冲响应体，
+// 200 → 回 {ok:true, fid}；任何非 200（含旧 Worker 的 204、502）/超时/网络错 → {ok:false}。
+// 「前端拿到 fid」⟺「Worker 已落库」——故必须真读到 200 + {fid} 才算成功。
+type TrackReqMsg = { id?: number; endpoint?: string; body?: unknown };
+
+function handleTrackRequest(channel: BridgeChannel, msg: TrackReqMsg): void {
+  const { id, endpoint, body } = msg;
+  if (typeof id !== "number") return;
+  let sent = false; // 每个 id 只回一次回执，否则前端 promise 会卡到自身超时
+  const respond = (r: { ok: boolean; fid?: string; error?: string }): void => {
+    if (sent) return;
+    sent = true;
+    try {
+      channel.send(IPC_EVENTS.TRACK_RES, { id, ...r });
+    } catch {
+      /* 通道异常无能为力 */
+    }
+  };
+  try {
+    if (typeof endpoint !== "string" || !endpoint || body == null) {
+      respond({ ok: false, error: "bad track args" });
+      return;
+    }
+    const payload = JSON.stringify(body);
+    const u = new URL(endpoint);
+    if (u.protocol !== "https:") {
+      respond({ ok: false, error: "not https" });
+      return;
+    }
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          "User-Agent": "gold-phone-app",
+        },
+        timeout: 8000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            // 非 200（含旧 Worker 的 204、Worker 502）= 没拿到回执 → 失败，不给编号
+            respond({ ok: false, error: `no receipt (HTTP ${res.statusCode ?? "?"})` });
+            return;
+          }
+          try {
+            const j = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { fid?: string };
+            if (typeof j.fid === "string" && j.fid) respond({ ok: true, fid: j.fid });
+            else respond({ ok: false, error: "no fid in receipt" });
+          } catch {
+            respond({ ok: false, error: "bad receipt json" });
+          }
+        });
+      },
+    );
+    req.on("error", (e) => respond({ ok: false, error: String(e) }));
+    req.on("timeout", () => {
+      req.destroy();
+      respond({ ok: false, error: "timeout" });
+    });
+    req.write(payload);
+    req.end();
+  } catch (e) {
+    respond({ ok: false, error: String(e) });
+  }
+}
+
 async function handleRequest(channel: BridgeChannel, msg: ReqMsg): Promise<void> {
   const { id, route } = msg;
   if (typeof id !== "number" || typeof route !== "string") return;
@@ -132,10 +205,14 @@ function main(): void {
     unsubscribe = null;
   });
 
-  // 4) 埋点上报（前端→Node→https POST 到 Worker）。阶段 1 endpoint 为空时前端根本不发，
-  //    此监听为阶段 2 预留：接通 Worker 后无需再改 Node 侧。
+  // 4) 埋点上报（前端→Node→https POST 到 Worker）。单向 fire-and-forget，给 app_open/app_version/ota_action 用。
   channel.addListener(IPC_EVENTS.TRACK, (data) => {
     handleTrack((data ?? {}) as TrackMsg);
+  });
+
+  // 4b) 带回执的上报（仅日志反馈）：落库成功后回传云端编号 fid 给前端（gold:track:res）。
+  channel.addListener(IPC_EVENTS.TRACK_REQ, (data) => {
+    handleTrackRequest(channel, (data ?? {}) as TrackReqMsg);
   });
 
   // 告知前端 Node 侧已就绪

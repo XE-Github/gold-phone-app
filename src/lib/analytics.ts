@@ -12,7 +12,7 @@
 // ⚠️ 阶段 1：ANALYTICS_ENDPOINT 留空 → 只把事件记到本地环形缓冲（供 /diag 预览），不真上传。
 //    阶段 2 部署 Worker 后填上 URL，send() 自动改走内嵌 Node https POST（兑底 WebView fetch）。
 
-import { isNativeApp } from "./apiBase";
+import { isNativeApp, ipcTrackAvailable, trackViaIpc } from "./apiBase";
 
 // 阶段 2：填 CF Worker URL（中转 → 写 GitHub 私有仓库）。URL 本身公开、不含任何密钥。
 // ⚠️ 诚实边界：这是 *.workers.dev 默认域名，国内常被 DNS 污染。设备只有在能连通 workers.dev
@@ -282,49 +282,79 @@ export async function trackOta(action: OtaAction): Promise<void> {
   }
 }
 
-// ── 日志反馈：装机诊断发现错误时，静默上报一份结构化错误摘要 ─────────────────────────
+// ── 日志反馈：装机诊断发现错误时，上报错误摘要并取回「云端回执编号」 ───────────────────
 //
-// 设计：诊断页跑完探测后自动判错；有错就调本函数，把小而全的 summary 经 send() 发到 Worker，
-// 落到数据仓库 feedback/ 文件夹。同时返回一个 6 位数字编号（fid，随上报落库），手机上显示给用户，
-// 用户把编号告诉作者即可在 feedback/*.ndjson 按 fid 精确定位本次诊断。
+// 云端回执模型：App 把 summary 发到 Worker，**Worker 落库成功后才回传一个依次编号（fid）**。
+// 于是「手机显示了编号」⟺「仓库里一定有这条记录」—— 编号是云端回执，不是本地许愿。
+// 用户把编号告诉作者，作者即可在 feedback/*.ndjson 按 fid 精确定位本次诊断。
 //
-// ⚠️ 诚实边界（[[honesty-is-foundation]]）：只有「确实派发了上传」（consent=granted 且 endpoint 非空）
-//    才返回编号；否则返回 null，让 UI 显示「本机未上报」而非假编号。注意：受 *.workers.dev 国内 DNS
-//    污染影响，设备连不上 Worker 时上传仍会静默丢弃 —— 此时手机仍显示编号（我们只能确认「已派发」，
-//    无法确认「已落库」）。故作者按编号查无记录时，最可能是设备没连通 Worker，并非功能损坏。
+// 三态返回（让 UI 诚实显示）：
+//   ok      —— 拿到云端回执编号（记录确已落库）。
+//   failed  —— 已派发但没拿到回执：超时 / 网络不通（如没开 VPN，*.workers.dev 国内被污染）/ 旧 Worker / 502。
+//              UI 显「上报失败」，**绝不显示假编号**（这正是相对 v0.1.14 的核心诚实修复）。
+//   skipped —— 未同意（连 did 都不建）或无 endpoint：UI 显「未上报」。
+//
+// ⚠️ 诚实边界（[[honesty-is-foundation]]）：编号只在真正读到 200 + {fid} 时才返回；任何不确定都归入 failed。
 
-/** 生成 6 位数字编号（100000~999999）。优先 crypto 强随机；无 crypto 走与 genUuid 同款弱回退。 */
-function gen6(): string {
-  try {
-    const c = (typeof globalThis !== "undefined" ? globalThis.crypto : undefined) as
-      | Crypto
-      | undefined;
-    if (c?.getRandomValues) {
-      const b = c.getRandomValues(new Uint32Array(1));
-      return String(100000 + (b[0] % 900000));
-    }
-  } catch {
-    /* 落到下面的弱回退 */
-  }
-  // 极端回退（无 crypto）：不保证强随机，仅避免崩溃；正常设备走不到这里。
-  const n = Math.abs(hashStr(String(performance?.now?.() ?? 0) + navUaSafe()));
-  return String(100000 + (n % 900000));
-}
+export type FeedbackResult =
+  | { status: "ok"; fid: string }
+  | { status: "failed" }
+  | { status: "skipped" };
 
 /**
- * 诊断发现错误时上报结构化摘要（fire-and-forget）。
- * @returns 6 位反馈编号（已派发上传时）或 null（未同意 / 无上传通道 → UI 不显示编号）。
+ * 诊断发现错误时上报结构化摘要，并取回云端回执编号。
+ * 原生壳走 IPC 带回执（trackViaIpc）；非原生（浏览器/dev）走 WebView fetch 读响应兑底。
  */
 export async function reportDiagFeedback(
   summary: Record<string, unknown>,
-): Promise<string | null> {
+): Promise<FeedbackResult> {
   try {
-    // 没真派发就不给编号：未同意（连 did 都不建）或 endpoint 为空（阶段 1 本地模式）。
-    if (getConsent() !== "granted" || !ANALYTICS_ENDPOINT) return null;
-    const fid = gen6();
-    await send("diag_feedback", { fid, ...summary });
-    return fid;
+    // 没真派发就不要编号：未同意或 endpoint 为空。
+    if (getConsent() !== "granted" || !ANALYTICS_ENDPOINT) return { status: "skipped" };
+
+    // 组装 body（与 send 同款字段，但不带客户端 fid —— 编号由 Worker 依次分配）。
+    const body: EventBody = {
+      event: "diag_feedback",
+      did: getOrCreateDeviceId(),
+      model: await getModel(),
+      ver: appVersion(),
+      ts: Date.now(),
+      ext: summary,
+    };
+    appendLog(body); // 本地环形缓冲预览（与其它埋点一致）
+
+    // 原生壳：IPC 带回执，拿到 Worker 落库后回传的 fid。
+    if (ipcTrackAvailable()) {
+      try {
+        const fid = await trackViaIpc(ANALYTICS_ENDPOINT, body);
+        return { status: "ok", fid };
+      } catch {
+        return { status: "failed" }; // 超时/无回执/网络错 → 不给编号
+      }
+    }
+
+    // 非原生（浏览器/dev）：WebView fetch 兑底，必须读响应体里的 fid 才算成功。
+    if (typeof fetch === "function") {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 9000);
+        const res = await fetch(ANALYTICS_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (!res.ok) return { status: "failed" };
+        const j = (await res.json()) as { fid?: string };
+        return j.fid ? { status: "ok", fid: j.fid } : { status: "failed" };
+      } catch {
+        return { status: "failed" };
+      }
+    }
+
+    return { status: "failed" }; // 既无 IPC 也无 fetch（理论上走不到）
   } catch {
-    return null; // 埋点绝不影响主功能
+    return { status: "failed" }; // 埋点绝不影响主功能
   }
 }

@@ -30,7 +30,9 @@ const IPC_RES = "gold:res"; // Node→前端：返回某次请求结果 {id, ok,
 const IPC_STREAM = "gold:stream"; // Node→前端：行情流一帧 payload
 const IPC_STREAM_START = "gold:stream:start"; // 前端→Node：开始推流
 const IPC_STREAM_STOP = "gold:stream:stop"; // 前端→Node：停止推流
-const IPC_TRACK = "gold:track"; // 前端→Node：上报一条埋点 {endpoint, body}（Node 用 https POST，绕 WebView）
+const IPC_TRACK = "gold:track"; // 前端→Node：上报一条埋点 {endpoint, body}（Node 用 https POST，绕 WebView，单向 fire-and-forget）
+const IPC_TRACK_REQ = "gold:track:req"; // 前端→Node：带回执的上报 {id, endpoint, body}（仅日志反馈用）
+const IPC_TRACK_RES = "gold:track:res"; // Node→前端：回执 {id, ok, fid?, error?}
 
 declare global {
   interface Window {
@@ -168,6 +170,71 @@ function requestViaIpc<R>(plugin: NodeJSPlugin, route: ApiRoute): Promise<R> {
   });
 }
 
+// ── IPC 带回执上报：仅日志反馈用，按 id 匹配回执（与 gold:req/res 同款模式，独立 map） ──
+//
+// 普通埋点（app_open 等）走单向 gold:track（fire-and-forget，不关心结果）。
+// 日志反馈需要「云端落库成功后回传编号」，故用 gold:track:req → gold:track:res 一对一回执：
+// Node 端 https POST 到 Worker，缓冲响应，200 → {ok:true, fid}；非 200/超时/网络错 → {ok:false}。
+
+let ipcTrackSeq = 0;
+const pendingTracks = new Map<number, (r: { ok: boolean; fid?: string; error?: string }) => void>();
+let trackResListenerBound = false;
+
+function ensureTrackResListener(plugin: NodeJSPlugin): void {
+  if (trackResListenerBound) return;
+  trackResListenerBound = true;
+  void plugin.addListener(IPC_TRACK_RES, (event) => {
+    const msg = event?.args?.[0] as
+      | { id?: number; ok?: boolean; fid?: string; error?: string }
+      | undefined;
+    if (!msg || typeof msg.id !== "number") return;
+    const resolver = pendingTracks.get(msg.id);
+    if (!resolver) return;
+    pendingTracks.delete(msg.id);
+    resolver({ ok: msg.ok === true, fid: msg.fid, error: msg.error });
+  });
+}
+
+// 整体超时略高于 Node 端 https 的 8000ms，让 Node 的具体错误（no receipt/超时）先到达。
+const TRACK_TIMEOUT_MS = 9000;
+
+/** 是否可走 IPC 带回执上报（原生壳 + 插件在场）。analytics 据此选 IPC 回执 / WebView fetch 兑底。 */
+export function ipcTrackAvailable(): boolean {
+  return ipcAvailable();
+}
+
+/**
+ * 经内嵌 Node 带回执地上报一条埋点，resolve 出云端回传的编号（fid）。
+ * 失败（非 200 / 超时 / 网络错 / 旧 Worker 回 204 / 无插件）→ reject。仅日志反馈调用。
+ * 调用前应先 ipcTrackAvailable() 判定；这里也兜底：无插件直接 reject。
+ */
+export function trackViaIpc(endpoint: string, body: unknown): Promise<string> {
+  const plugin = getNodePlugin();
+  if (!plugin) return Promise.reject(new Error("无内嵌 Node 插件"));
+  ensureTrackResListener(plugin);
+  const id = ++ipcTrackSeq;
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingTracks.delete(id);
+      reject(new Error("IPC 上报回执超时"));
+    }, TRACK_TIMEOUT_MS);
+
+    pendingTracks.set(id, (r) => {
+      clearTimeout(timer);
+      if (r.ok && r.fid) resolve(r.fid);
+      else reject(new Error(r.error || "上报无回执"));
+    });
+
+    void plugin
+      .send({ eventName: IPC_TRACK_REQ, args: [{ id, endpoint, body }] })
+      .catch((e) => {
+        clearTimeout(timer);
+        pendingTracks.delete(id);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      });
+  });
+}
+
 // ── 对外原语 1：请求/响应 ────────────────────────────────────────────────────
 
 /**
@@ -282,4 +349,6 @@ export const IPC_EVENTS = {
   STREAM_START: IPC_STREAM_START,
   STREAM_STOP: IPC_STREAM_STOP,
   TRACK: IPC_TRACK,
+  TRACK_REQ: IPC_TRACK_REQ,
+  TRACK_RES: IPC_TRACK_RES,
 } as const;
