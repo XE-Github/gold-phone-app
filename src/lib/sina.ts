@@ -1,7 +1,14 @@
 // 新浪财经实时行情（PhoneApp 独立实现）。
 // 单次请求 https://hq.sinajs.cn/list=... ，GB18030 解码，Referer 必填（否则被拒）。
 // 字段索引经主项目实测校准，关键陷阱见各 parse 函数注释。
+//
+// ⚠️ 解码必须用 iconv-lite，不能用 new TextDecoder("gb18030")：内嵌运行时
+// (@choreruiz/capacitor-node-js 的 nodejs-mobile Node18) 编译用 small-icu，不含
+// gb18030 legacy 编码表 → 设备上 TextDecoder('gb18030') 抛 RangeError → 整个
+// fetchSinaQuotes reject → 国内标的全无数据(桌面/CI 是 full-icu 故本地测不出)。
+// iconv-lite 是纯 JS 解码表、零 ICU 依赖，可被 esbuild 打进 main.js。
 
+import iconv from "iconv-lite";
 import type { Quote } from "./types";
 
 // 手机看板只需这几个标的（伦敦金 + 汇率 + SGE 现货 + 沪金主力）
@@ -158,7 +165,8 @@ export async function fetchSinaQuotes(): Promise<Quote[]> {
   if (!response.ok) throw new Error(`Sina HTTP ${response.status}`);
 
   const buffer = await response.arrayBuffer();
-  const text = new TextDecoder("gb18030", { fatal: false }).decode(buffer);
+  // iconv-lite 纯 JS 解 GB18030（绕开 nodejs-mobile small-icu 无 legacy 编码表的坑，见文件头注释）。
+  const text = iconv.decode(Buffer.from(buffer), "gb18030");
 
   const quotes: Quote[] = [];
   for (const match of text.matchAll(/var hq_str_([^=]+)="([^"]*)";/g)) {
