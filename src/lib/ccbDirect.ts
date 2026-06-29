@@ -5,7 +5,7 @@
 
 import https from "node:https";
 import crypto from "node:crypto";
-import type { Quote } from "./types";
+import type { Quote, BankDirectDiag } from "./types";
 
 const CCB_BASE = "https://gold3.ccb.com";
 const CCB_REFERER = `${CCB_BASE}/chn/home/gold_new/cpjs/index.shtml`;
@@ -17,9 +17,9 @@ const ccbAgent = new https.Agent({
   secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT as number,
 });
 
-// 直连诊断：同 icbcDirect，记录上一次失败原因供诊断页显示（见该文件注释）。
-let lastCcbDiag = "ok";
-export function getCcbDirectDiag(): string {
+// 直连诊断：同 icbcDirect（v0.1.11 加宽），记录结论 + 失败时设备实收证据供诊断页显示。
+let lastCcbDiag: BankDirectDiag = { code: "ok" };
+export function getCcbDirectDiag(): BankDirectDiag {
   return lastCcbDiag;
 }
 
@@ -32,6 +32,16 @@ function diagFromError(e: unknown): string {
     return e.message || "error";
   }
   return "error";
+}
+
+// 截响应体前若干可见字符，压成单行（仅失败路径、公开查询页，不含敏感数据）。
+function safeSnippet(text: string, max = 120): string {
+  return String(text).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function headerStr(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
 }
 
 interface CcbNgjs01Response {
@@ -67,7 +77,7 @@ function httpsGet(
 }
 
 export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
-  lastCcbDiag = "ok";
+  lastCcbDiag = { code: "ok" };
   try {
     const sessUrl = `${CCB_BASE}/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=100119`;
     const r1 = await httpsGet(sessUrl, { "User-Agent": CCB_UA, Referer: CCB_REFERER }, 8000);
@@ -78,7 +88,16 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
         : [];
     const cookieHeader = setCookies.map((c) => c.split(";")[0]).join("; ");
     if (!cookieHeader) {
-      lastCcbDiag = "no-cookie"; // 第一步连上了但没拿到 session cookie
+      // 第一步连上了但没拿到 session cookie：带上设备实收证据，看第一步到底返回了什么
+      // （挑战页?空体?重定向?）——这是设备最可能卡住的一步。
+      lastCcbDiag = {
+        code: "no-cookie",
+        httpStatus: r1.status,
+        bytes: r1.body.length,
+        contentType: headerStr(r1.headers["content-type"]),
+        location: headerStr(r1.headers["location"]),
+        snippet: safeSnippet(r1.body),
+      };
       return null;
     }
 
@@ -89,16 +108,43 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
       8000,
     );
 
-    const data = JSON.parse(r2.body.trim()) as CcbNgjs01Response;
+    // JSON.parse 包 try：设备若收到非 JSON 的拦截/HTML 页，原来会裸抛进 catch、看不清；
+    // 这里直接记 no-data + 片段，把「期望 JSON 却拿到啥」说清楚。
+    let data: CcbNgjs01Response;
+    try {
+      data = JSON.parse(r2.body.trim()) as CcbNgjs01Response;
+    } catch {
+      lastCcbDiag = {
+        code: "no-data",
+        httpStatus: r2.status,
+        bytes: r2.body.length,
+        contentType: headerStr(r2.headers["content-type"]),
+        snippet: safeSnippet(r2.body),
+      };
+      return null;
+    }
+
     if (data.SUCCESS !== "true") {
-      lastCcbDiag = "no-data";
+      lastCcbDiag = {
+        code: "no-data",
+        httpStatus: r2.status,
+        bytes: r2.body.length,
+        contentType: headerStr(r2.headers["content-type"]),
+        snippet: safeSnippet(r2.body),
+      };
       return null;
     }
 
     const buy = Number(data.Cst_Buy_Prc);
     const sell = Number(data.Cst_Sell_Prc);
     if (!Number.isFinite(buy) || buy <= 0) {
-      lastCcbDiag = "no-data";
+      lastCcbDiag = {
+        code: "no-data",
+        httpStatus: r2.status,
+        bytes: r2.body.length,
+        contentType: headerStr(r2.headers["content-type"]),
+        snippet: safeSnippet(r2.body),
+      };
       return null;
     }
 
@@ -117,7 +163,8 @@ export async function fetchCcbAccrualQuote(): Promise<Quote | null> {
       stale: false,
     };
   } catch (e) {
-    lastCcbDiag = diagFromError(e);
+    // 网络/握手层错误（EPROTO/超时/DNS 等），无 HTTP 状态可记。
+    lastCcbDiag = { code: diagFromError(e) };
     console.warn("[bankGold] 建行官网直连失败，回退 huimiao:", e);
     return null;
   }

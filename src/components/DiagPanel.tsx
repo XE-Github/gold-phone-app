@@ -23,7 +23,7 @@ import {
   isNativeNotify,
 } from "@/lib/notify";
 import { checkForUpdate, currentVersion, canInstallUpdate } from "@/lib/ota";
-import type { Quote } from "@/lib/types";
+import type { Quote, BankDirectDiag } from "@/lib/types";
 
 // ── 运行环境探测（不静态依赖 Capacitor，运行期读 window） ──
 function probeEnv() {
@@ -62,8 +62,8 @@ type RouteResult = {
   warnings: string[];
   error?: string;
   quotes?: Quote[];
-  // bank-gold 专有：工行/建行官网直连诊断（成败原因码），用于 ③ 显示失败具体原因。
-  bankDirectDiag?: { icbc: string; ccb: string };
+  // bank-gold 专有：工行/建行官网直连诊断证据，用于 ③ 显示失败具体原因 + 设备实收内容。
+  bankDirectDiag?: { icbc: BankDirectDiag; ccb: BankDirectDiag };
 };
 
 function Row({ k, v, good }: { k: string; v: string; good?: boolean | null }) {
@@ -109,22 +109,49 @@ function instrumentRows(quotes: Quote[] | undefined) {
 
 // 把直连失败原因码翻成人话：EPROTO=设备 OpenSSL 不支持老旧握手（最关心的判别点）；
 // 超时/DNS=网络或环境；HTTP xxx=连上但被拒；no-data/no-cookie/ok=连上但没解出有效数据。
-function bankFailReason(code: string | undefined): string {
+function reasonText(code: string | undefined): string {
   if (!code) return "未拿到官网直连数据";
   if (code === "EPROTO") return "未拿到（EPROTO：设备 OpenSSL 不支持老旧握手）";
   if (code === "ETIMEDOUT" || code === "timeout") return "未拿到（超时）";
   if (code === "ENOTFOUND") return "未拿到（DNS 解析失败）";
   if (code === "ECONNRESET" || code === "ECONNREFUSED") return `未拿到（${code}：连接被断/拒）`;
   if (code.startsWith("HTTP ")) return `未拿到（${code}）`;
-  if (code === "no-data" || code === "no-cookie" || code === "ok")
-    return "未拿到（连上但无有效数据）";
+  if (code === "no-cookie") return "未拿到（连上但没拿到会话 cookie）";
+  if (code === "no-data" || code === "ok") return "未拿到（连上但无有效数据）";
   return `未拿到（${code}）`;
+}
+
+// v0.1.11：失败时把设备「实际收到了什么」拼成一句证据（HTTP 状态/字节/类型/重定向/片段），
+// 用于区分被 WAF 拦的挑战页、空体、重定向没跟等真实成因（握手通了才会有这些）。
+function evidenceText(diag?: BankDirectDiag): string {
+  if (!diag) return "";
+  const parts: string[] = [];
+  if (typeof diag.httpStatus === "number" && diag.httpStatus > 0) parts.push(`HTTP${diag.httpStatus}`);
+  if (typeof diag.bytes === "number") parts.push(`${diag.bytes}字节`);
+  if (diag.contentType) parts.push(diag.contentType.split(";")[0]);
+  if (diag.location) parts.push(`→${diag.location}`);
+  const head = parts.join("，");
+  const snip = diag.snippet ? `“${diag.snippet}”` : "";
+  if (head && snip) return `设备实收：${head}；${snip}`;
+  if (head) return `设备实收：${head}`;
+  if (snip) return `设备实收：${snip}`;
+  return "";
+}
+
+// 完整失败结论：主因 + 设备实收证据（有则附在后面）。
+function bankFailReason(diag?: BankDirectDiag): string {
+  const main = reasonText(diag?.code);
+  const ev = evidenceText(diag);
+  return ev ? `${main}｜${ev}` : main;
 }
 
 // 从 bank-gold 的 quotes 里挑出工行/建行官网直连的实测结论。
 // 判定与数据层一致：source 含「工行官网」「建行官网」= 老旧 TLS 直连成功拿到真实数据。
-// diag（来自 payload.bankDirectDiag）在失败时给出具体原因，区分握手失败 vs 别的问题。
-function bankTlsVerdict(quotes: Quote[] | undefined, diag?: { icbc: string; ccb: string }) {
+// diag（来自 payload.bankDirectDiag）在失败时给出具体原因 + 设备实收证据。
+function bankTlsVerdict(
+  quotes: Quote[] | undefined,
+  diag?: { icbc: BankDirectDiag; ccb: BankDirectDiag },
+) {
   const list = quotes ?? [];
   const icbc = list.find((q) => /工行/.test(q.source) && /官网/.test(q.source));
   const ccb = list.find((q) => /建行/.test(q.source) && /官网/.test(q.source));
@@ -195,7 +222,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
           warnings?: string[];
           series?: Record<string, unknown[]>;
           sources?: Record<string, string>;
-          bankDirectDiag?: { icbc: string; ccb: string };
+          bankDirectDiag?: { icbc: BankDirectDiag; ccb: BankDirectDiag };
         };
         const quotes = anyData.quotes;
         let count: number;
@@ -620,7 +647,8 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
             <Row k="建行官网直连" v={bankTls.ccb} good={bankTls.ccbGood} />
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
               成功=内嵌 Node 的老旧 TLS 握手通了，拿到官网真实价；失败=自动回退聚合源（数据仍在，仅这两家非直连），属预期降级。
-              失败时括号内为具体原因：EPROTO=设备不支持老旧握手、超时/DNS=网络问题。
+              失败时「｜设备实收」后是这台设备实际收到的内容（HTTP 状态/字节/类型/重定向/片段）——
+              EPROTO=握手不支持；HTTP200+HTML 片段=多半被拦或拿到验证页；带「→」=有重定向。把这行一并截图回报即可定位。
             </p>
           </>
         ) : null}

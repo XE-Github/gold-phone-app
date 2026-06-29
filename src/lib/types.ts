@@ -43,12 +43,25 @@ export type QuotesPayload = {
   bankTotal?: number; // 积存金标的总数
 };
 
+// 工行/建行官网直连诊断证据（v0.1.11 加宽）。code 是简短结论码（ok/no-data/no-cookie/EPROTO/
+// HTTP xxx/...），其余字段是失败时设备「实际收到了什么」的取证——握手通了才有 httpStatus/bytes，
+// 用于区分「被 WAF 拦/挑战页」「重定向没跟」「空体」等真实成因。snippet 只截公开查询页前若干字符、
+// 仅失败路径，不含鉴权/个人数据。仅诊断页消费，主页忽略。
+export type BankDirectDiag = {
+  code: string;
+  httpStatus?: number; // 实际 HTTP 状态码（握手成功才有）
+  bytes?: number; // 响应体字节数（0/极小 = 空体或被拦）
+  contentType?: string; // Content-Type 头（返回 HTML 而非预期牌价/JSON 即可疑）
+  location?: string; // 3xx 时的 Location 头（定位「重定向没跟」）
+  snippet?: string; // 响应体前若干字符（单行、脱敏；定位是否为挑战页/报错页）
+};
+
 export type BankGoldPayload = {
   quotes: Quote[];
   realCount: number;
   total: number;
   warnings: string[];
   serverTime: number;
-  // 工行/建行官网直连诊断（成败原因码，如 ok/EPROTO/timeout/no-data）。仅诊断页消费，主页忽略。
-  bankDirectDiag?: { icbc: string; ccb: string };
+  // 工行/建行官网直连诊断（见 BankDirectDiag）。仅诊断页消费，主页忽略。
+  bankDirectDiag?: { icbc: BankDirectDiag; ccb: BankDirectDiag };
 };

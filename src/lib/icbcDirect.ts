@@ -10,7 +10,7 @@
 import https from "node:https";
 import crypto from "node:crypto";
 import iconv from "iconv-lite";
-import type { Quote } from "./types";
+import type { Quote, BankDirectDiag } from "./types";
 
 const ICBC_GOLD_URL =
   "https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp";
@@ -25,11 +25,12 @@ const icbcAgent = new https.Agent({
   secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT as number,
 });
 
-// 直连诊断：记录上一次抓取的失败原因（error.code 优先，如 EPROTO/ETIMEDOUT/ENOTFOUND）。
-// 设备 nodejs-mobile 上官网直连一直 ✗ 但原因被吞在 console.warn 里，诊断页拿不到；
-// 用模块级变量把原因透出，经 bankGold→payload→DiagPanel 显示，定位设备到底卡在握手还是别处。
-let lastIcbcDiag = "ok";
-export function getIcbcDirectDiag(): string {
+// 直连诊断：记录上一次抓取的结论 + 失败时设备「实际收到了什么」的取证。
+// 设备 nodejs-mobile 上官网直连一直 ✗（v0.1.10 报告为「连上但无有效数据」），但握手已通、
+// 究竟收到验证页/空体/重定向看不清；v0.1.11 把 httpStatus/bytes/contentType/snippet 一并透出，
+// 经 bankGold→payload→DiagPanel 显示，定位设备到底卡在哪一层（见 types.BankDirectDiag）。
+let lastIcbcDiag: BankDirectDiag = { code: "ok" };
+export function getIcbcDirectDiag(): BankDirectDiag {
   return lastIcbcDiag;
 }
 
@@ -45,6 +46,12 @@ function diagFromError(e: unknown): string {
   return "error";
 }
 
+// 截响应体前若干可见字符，压成单行，供诊断定位「是不是挑战页/报错页」。
+// 只在失败路径调用、只截公开查询页 HTML/JSON 头部，不含鉴权或个人数据。
+function safeSnippet(text: string, max = 120): string {
+  return String(text).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
 function extractField(html: string, field: string): number | null {
   const re = new RegExp(`id="${field}_${PRODUCT_CODE}"[^>]*>([^<]+)`, "i");
   const m = html.match(re);
@@ -53,36 +60,84 @@ function extractField(html: string, field: string): number | null {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
-function httpsGet(url: string, headers: Record<string, string>, timeoutMs: number): Promise<Buffer> {
+// 返回完整响应（含 status/headers），HTTP≥400 不再 reject —— 调用处据 status 记录取证再决定。
+// 仅网络层错误（EPROTO/超时/DNS 等）才 reject，那是真握手/连接失败。
+type IcbcResponse = {
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  buf: Buffer;
+};
+
+function httpsGet(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<IcbcResponse> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { agent: icbcAgent, headers, timeout: timeoutMs }, (res) => {
-      if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`HTTP ${res.statusCode}`));
-        res.resume();
-        return;
-      }
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
-      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("end", () =>
+        resolve({
+          status: res.statusCode ?? 0,
+          headers: res.headers as Record<string, string | string[] | undefined>,
+          buf: Buffer.concat(chunks),
+        }),
+      );
     });
     req.on("error", reject);
     req.on("timeout", () => req.destroy(new Error("timeout")));
   });
 }
 
+function headerStr(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
-  lastIcbcDiag = "ok";
+  lastIcbcDiag = { code: "ok" };
   try {
-    const buf = await httpsGet(ICBC_GOLD_URL, { "User-Agent": ICBC_UA, Accept: "text/html" }, 8000);
+    const res = await httpsGet(
+      ICBC_GOLD_URL,
+      { "User-Agent": ICBC_UA, Accept: "text/html" },
+      8000,
+    );
+
+    // 设备实收取证：握手通了才到这里，记下状态/字节/类型/重定向，失败时随 diag 透出。
+    const contentType = headerStr(res.headers["content-type"]);
+    const location = headerStr(res.headers["location"]);
+    const bytes = res.buf.length;
+
+    if (res.status >= 400) {
+      lastIcbcDiag = {
+        code: `HTTP ${res.status}`,
+        httpStatus: res.status,
+        bytes,
+        contentType,
+        location,
+        snippet: safeSnippet(iconv.decode(res.buf, "gbk")),
+      };
+      return null;
+    }
 
     // iconv-lite 纯 JS 解 GBK（绕开设备 small-icu 无 gbk 编码表的坑，见文件头注释）。
-    const html = iconv.decode(buf, "gbk");
+    const html = iconv.decode(res.buf, "gbk");
 
     const active = extractField(html, "activeprice"); // 主动积存价(你买入)
     const high = extractField(html, "highprice");
     const low = extractField(html, "lowprice");
     if (!active) {
-      lastIcbcDiag = "no-data"; // 握手+解码都成，但没解出有效价格（页面结构变了？）
+      // 握手+解码都成，但没解出有效价格：可能页面结构变了，也可能收到的是挑战/重定向页。
+      // 带上设备实收证据（状态/字节/类型/重定向/片段）以便看清到底收到了什么。
+      lastIcbcDiag = {
+        code: "no-data",
+        httpStatus: res.status,
+        bytes,
+        contentType,
+        location,
+        snippet: safeSnippet(html),
+      };
       return null;
     }
 
@@ -103,7 +158,8 @@ export async function fetchIcbcAccrualQuote(): Promise<Quote | null> {
       stale: false,
     };
   } catch (e) {
-    lastIcbcDiag = diagFromError(e);
+    // 走到 catch = 网络/握手层错误（EPROTO/超时/DNS 等），无 HTTP 状态可记。
+    lastIcbcDiag = { code: diagFromError(e) };
     console.warn("[bankGold] 工行官网直连失败，回退 huimiao:", e);
     return null;
   }

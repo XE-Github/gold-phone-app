@@ -10,7 +10,7 @@
 // ⚠️ huimiao 字段名反直觉：purchase_value=你买入价(price/ask)，sale_value=你卖出价(bid)。
 // ⚠️ 京东只给单边价（卖出），bid 用全点差估算（sell 边真实、buy 边估算）。
 
-import type { Quote } from "./types";
+import type { Quote, BankDirectDiag } from "./types";
 import { BANK_GOLD_PRODUCTS, type ProductDef } from "./bankProducts";
 import { fetchIcbcAccrualQuote, getIcbcDirectDiag } from "./icbcDirect";
 import { fetchCcbAccrualQuote, getCcbDirectDiag } from "./ccbDirect";
@@ -70,7 +70,7 @@ export async function fetchBankGoldQuotes(
 ): Promise<{
   quotes: Quote[];
   realCount: number;
-  bankDirectDiag: { icbc: string; ccb: string };
+  bankDirectDiag: { icbc: BankDirectDiag; ccb: BankDirectDiag };
 }> {
   const quotes: Quote[] = [];
 
