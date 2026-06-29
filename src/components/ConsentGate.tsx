@@ -76,27 +76,32 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
 
   if (decision === "asking") {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-6 py-10">
+      <main
+        className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-6"
+        style={{
+          paddingTop: "max(2.5rem, var(--safe-top))",
+          paddingBottom: "max(2.5rem, var(--safe-bottom))",
+        }}
+      >
         <div className="flex flex-1 flex-col justify-center">
-          <h1 className="text-3xl font-bold text-white">黄金看板·手机版</h1>
-          <p className="mt-2 text-sm text-slate-400">实时金价 · 提醒 · 积存金对比</p>
+          <h1 className="text-center text-3xl font-bold text-white">黄金看板</h1>
 
           <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <h2 className="text-base font-semibold text-white">匿名使用统计</h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-300">
-              本应用会上报<strong className="text-white">匿名</strong>的启动、版本与升级统计，
-              仅用于了解大致的活跃与升级情况、改进产品。
-            </p>
+            <h2 className="text-base font-semibold text-white">隐私说明</h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">仅用于改进产品体验。</p>
             <ul className="mt-3 space-y-1.5 text-[13px] leading-relaxed text-slate-400">
               <li>· 采集：一个随机生成的匿名标识、设备型号、App 版本、时间</li>
               <li>· 不采集：手机序列号 / IMEI、真实身份、账号、位置、通讯录</li>
               <li>· 不记录你的原始 IP（仅保留所在国家/地区）</li>
-              <li>· 数据仅作者本人可见，用于改进本应用</li>
             </ul>
             <p className="mt-3 text-[13px] leading-relaxed text-slate-400">
               需要你同意后才能进入应用。
             </p>
           </div>
+
+          <p className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/[0.08] px-3 py-2.5 text-[13px] leading-relaxed text-amber-200/90">
+            请注意：本应用为学习辅助工具，非投资建议。
+          </p>
         </div>
 
         <div className="mt-6 space-y-3">

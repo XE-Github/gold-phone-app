@@ -1,6 +1,6 @@
 {
   "name": "gold-phone-app",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "description": "独立隔离的黄金看板手机网页版（实时金价+提醒、银行积存金对比）。与主项目完全解耦，自带数据抓取。",
   "scripts": {

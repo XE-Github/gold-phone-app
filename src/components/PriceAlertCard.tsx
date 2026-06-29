@@ -163,11 +163,6 @@ export function PriceAlertCard({
           <p className="text-[11px] leading-relaxed text-slate-500">
             ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
             若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
-            排查通知可打开诊断页{" "}
-            <a href="/notify-check" className="text-amber-300 underline">
-              /notify-check
-            </a>
-            。
           </p>
         )}
         {error && <p className="text-xs text-rose-400">{error}</p>}

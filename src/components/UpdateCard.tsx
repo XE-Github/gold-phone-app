@@ -139,10 +139,6 @@ export function UpdateCard() {
           )}
         </div>
       )}
-
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
-        升级从 GitHub Releases 拉取。Android 安全机制要求安装时在系统弹窗点「安装」，并允许本应用「安装未知应用」，无法完全静默。
-      </p>
     </section>
   );
 }

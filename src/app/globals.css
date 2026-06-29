@@ -4,6 +4,15 @@
   color-scheme: dark;
   --background: #0b1020;
   --foreground: #f8fafc;
+
+  /* 安全区单一事实源（全项目引用，不要散落写 env/var）。
+     - iOS / 桌面浏览器：用原生 env(safe-area-inset-*)。
+     - Android（Capacitor 8 edge-to-edge）：原生 env() 仅 WebView 140+ 才非 0，
+       低版本返回 0；但 Capacitor SystemBars 插件（默认 insetsHandling="css" +
+       本项目 viewport-fit=cover）会往 documentElement 注入 --safe-area-inset-*。
+     两者取 max 即可跨端兜底；var() 的 0px fallback 让无注入的桌面安全归零。 */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
 }
 
 * {

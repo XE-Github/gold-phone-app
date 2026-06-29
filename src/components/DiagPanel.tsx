@@ -174,9 +174,10 @@ function bankTlsVerdict(
   };
 }
 
-// onClose 传入即「弹层模式」：顶部显示关闭条，内容不套全屏 <main>（由外层弹层负责）。
-// 不传则「整页模式」：套 <main> + 安全区，供 /diag 路由页(PC dev 调试)直接渲染。
-export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
+// embedded=true：嵌在二级页壳里（page.tsx 的 DiagView，顶部已有「← 返回」条吃安全区）。
+//   此时本面板不套全屏高度、不再加顶部安全区、不渲染自己的标题/关闭按钮——退出走外层返回条，统一二级页体验。
+// embedded 缺省：整页模式，套 <main> + min-h-dvh + 顶部安全区 + 自带标题，供 /diag 路由页(PC dev 调试)直接渲染。
+export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const [env, setEnv] = useState<ReturnType<typeof probeEnv> | null>(null);
   const [quotesR, setQuotesR] = useState<RouteResult | null>(null);
   const [bankR, setBankR] = useState<RouteResult | null>(null);
@@ -418,38 +419,6 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     }
   }
 
-  // 测试用：主动发一条「自带错误」的反馈，验证云端回执链路（拿编号）。
-  // 用一份写死的假摘要，并明确打 test:true + note:"manual-test"——这样落进 feedback/*.ndjson 时
-  // 一眼能认出是用户主动测试、不是真实故障，绝不会被当真问题分析。
-  // 走的是与自动上报同一个 reportDiagFeedback（同一回执通道），故能完整验证全链路。
-  async function onSendTestFeedback() {
-    const summary: Record<string, unknown> = {
-      test: true,
-      note: "manual-test",
-      v: env?.version ?? currentVersion(),
-      plat: env?.platform ?? "",
-      // 写死的假错误现场（仅供测试链路；非真实探测结果）。
-      routes: { quotes: "test-forced-error", bank: "test-forced-error", history: "test-forced-error" },
-      tls: { icbc: "test-forced-error", ccb: "test-forced-error" },
-      stream: -1,
-      missing: ["__manual_test__"],
-      warn: ["这是装机诊断页的『发测试反馈』按钮主动触发的测试记录，非真实故障。"],
-    };
-    setFb({ phase: "sending" });
-    append("【测试】主动发一条自带错误的反馈，等待云端回执编号…");
-    const r: FeedbackResult = await reportDiagFeedback(summary);
-    if (r.status === "ok") {
-      setFb({ phase: "ok", fid: r.fid });
-      append(`【测试】上报成功 → 云端反馈编号 ${r.fid}（记录已落库，标记 test:true）`);
-    } else if (r.status === "skipped") {
-      setFb({ phase: "skipped" });
-      append("【测试】本机未上报（未同意匿名统计或无上传通道）");
-    } else {
-      setFb({ phase: "failed" });
-      append("【测试】上报失败（超时/网络不通，可能需开 VPN）→ 未生成编号");
-    }
-  }
-
   // 把整页探测结果汇成一段结构化纯文本，供复制后粘贴回报。
   const buildReport = useCallback((): string => {
     const lines: string[] = [];
@@ -637,11 +606,22 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
     return { hasError, summary };
   }, [env, quotesR, bankR, historyR, streamR]);
 
+  // 顶部诊断状态徽标（三档，用户一眼看现在什么状态）：
+  //   running = 四路探测未全 settled（含 8s 推流）→「诊断中」；
+  //   error   = 已 settled 且 collectErrors().hasError →「检测到异常」（本 App 红=异常）；
+  //   ok      = 已 settled 且无异常 →「无异常」。
+  // 复用与自动上报同一套 settled / hasError 判定，不另造逻辑。
+  const settled = Boolean(quotesR && bankR && historyR && streamR?.done);
+  const diagStatus: "running" | "error" | "ok" = !settled
+    ? "running"
+    : collectErrors().hasError
+      ? "error"
+      : "ok";
+
   // 自动触发：四路探测全 settled（含 8s 推流）后判错一次；有错则上报并等云端回执编号。
   // 用 fbSentRef 守卫整页只跑一次（探测期间多次 setState 会触发本 effect 重跑）。
   useEffect(() => {
     if (fbSentRef.current) return;
-    const settled = Boolean(quotesR && bankR && historyR && streamR?.done);
     if (!settled) return;
     fbSentRef.current = true;
     const { hasError, summary } = collectErrors();
@@ -662,28 +642,26 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
         append("上报失败（超时/网络不通，可能需开 VPN）→ 未生成编号");
       }
     })();
-  }, [quotesR, bankR, historyR, streamR, collectErrors, append]);
+  }, [settled, quotesR, bankR, historyR, streamR, collectErrors, append]);
 
-  const overlay = typeof onClose === "function";
   return (
     <main
-      className={`mx-auto w-full max-w-md text-white ${overlay ? "px-4 pb-16" : "min-h-dvh px-4 pb-16"}`}
-      // 顶部留安全区(刘海/状态栏)+ 16px，防标题/按钮被遮挡
-      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)" }}
+      className={`mx-auto w-full max-w-md px-4 text-white ${embedded ? "pt-3" : "min-h-dvh"}`}
+      // embedded：外层二级页壳已吃顶部安全区（返回条），这里只留常规上间距、底部仍留安全区。
+      // 整页模式（/diag dev 调试）：顶部吃 --safe-top + 16px，底部 pb-16。
+      style={
+        embedded
+          ? { paddingBottom: "calc(4rem + var(--safe-bottom))" }
+          : { paddingTop: "calc(var(--safe-top) + 16px)", paddingBottom: "4rem" }
+      }
     >
+      {/* 顶部：整页模式显示标题；两种模式都显示三档诊断状态徽标 */}
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-bold">装机诊断</h1>
-        {overlay && (
-          <button
-            onClick={onClose}
-            className="min-h-9 shrink-0 rounded-lg border border-white/10 px-3 text-sm text-slate-300 active:bg-white/10"
-          >
-            ✕ 关闭
-          </button>
-        )}
+        {embedded ? <DiagStatusBadge status={diagStatus} /> : <h1 className="text-lg font-bold">装机诊断</h1>}
+        {!embedded && <DiagStatusBadge status={diagStatus} />}
       </div>
       <p className="mt-1 text-[11px] text-slate-500">
-        一眼看清数据源、工行/建行直连、通知、升级是否正常。诊断跑完后，点下方按钮生成全文，复制发回即可。
+        遇到问题时，点下方按钮生成报告，复制发回作者即可。
       </p>
 
       {/* 日志反馈（云端回执）：诊断异常时上报错误摘要，云端落库成功后才下发依次编号。
@@ -726,9 +704,7 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
         📋 生成诊断报告 · 复制
       </button>
       <p className="mt-1 text-[11px] text-slate-500">
-        {running
-          ? "正在探测…（最长约 8 秒）。可等跑完再点上面按钮，结果更全；现在点也能拿到当前快照。"
-          : "探测已完成。点上面按钮生成全文 → 复制发我。"}
+        {running ? "正在检测…（最长约 8 秒，等完成后点上面按钮更全）" : "检测已完成。"}
       </p>
       {copyHint && (
         <p className="mt-2 text-[11px] leading-relaxed text-emerald-300">{copyHint}</p>
@@ -850,10 +826,6 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
             {streamR.firstMs !== null && (
               <Row k="首帧耗时" v={`${streamR.firstMs}ms`} good={null} />
             )}
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              通=主页实时推送正常；未收到帧=推流通道没起来，主页会自动退化为每 5 秒轮询一次（数据仍会显示，只是不实时）。
-              若上方②行情本身就 0 条/失败，则与推流无关，是上游抓取问题。
-            </p>
           </>
         )}
       </section>
@@ -871,11 +843,6 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
           <>
             <Row k="工行官网直连" v={bankTls.icbc} good={bankTls.icbcGood} />
             <Row k="建行官网直连" v={bankTls.ccb} good={bankTls.ccbGood} />
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              成功=内嵌 Node 的老旧 TLS 握手通了，拿到官网真实价；失败=自动回退聚合源（数据仍在，仅这两家非直连），属预期降级。
-              失败时「｜设备实收」后是这台设备实际收到的内容（HTTP 状态/字节/类型/重定向/片段）——
-              EPROTO=握手不支持；HTTP200+HTML 片段=多半被拦或拿到验证页；带「→」=有重定向。把这行一并截图回报即可定位。
-            </p>
           </>
         ) : null}
       </section>
@@ -910,82 +877,39 @@ export function DiagPanel({ onClose }: { onClose?: () => void } = {}) {
           >
             ③ 检查更新（测 GitHub 连通）
           </button>
-          <button
-            onClick={() => void onSendTestFeedback()}
-            className="min-h-[44px] rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 text-sm font-semibold text-rose-200 active:bg-rose-500/25"
-          >
-            ④ 发测试反馈（自带错误·测云端回执编号）
-          </button>
-          <p className="text-[11px] leading-relaxed text-slate-500">
-            点④会主动上报一条<strong className="text-rose-200/90">写死的假错误</strong>（已标 test，不当真实故障），
-            用来验证云端回执：成功 → 顶部出 6 位编号（把编号告诉作者即可）；失败 → 顶部「上报失败」（多半没开 VPN）。
-          </p>
         </div>
       </section>
 
-      {/* ⑤ 本机埋点（匿名统计预览，阶段 1 只本地不上传） */}
-      <h2 className="mt-4 mb-1 text-sm font-semibold text-amber-300">⑤ 本机埋点（匿名统计）</h2>
-      <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-        {!analytics ? (
-          <p className="text-sm text-slate-400">读取中…</p>
-        ) : (
-          <>
-            <Row
-              k="同意状态"
-              v={
-                analytics.consent === "granted"
-                  ? "已同意"
-                  : analytics.consent === "declined"
-                    ? "已拒绝"
-                    : "未决定"
-              }
-              good={analytics.consent === "granted" ? true : analytics.consent === "declined" ? false : null}
-            />
-            <Row k="设备标识(匿名)" v={analytics.did} good={null} />
-            <Row k="设备型号" v={analytics.model} good={null} />
-            <Row k="本地已记录事件" v={`${analytics.eventCount} 条`} good={null} />
-            {analytics.lastEvents.length > 0 && (
-              <div className="mt-2 space-y-0.5 text-[11px] leading-relaxed text-slate-400">
-                <p className="text-slate-500">最近事件：</p>
-                {analytics.lastEvents.map((e, i) => (
-                  <p key={i} className="tabular-nums">· {e}</p>
-                ))}
-              </div>
-            )}
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              当前为阶段 1：事件只记在本机、<strong className="text-slate-300">不上传</strong>。
-              「设备标识」是首次同意后随机生成的匿名 ID（非手机序列号），用于去重统计活跃。
-              接通后台后才会把这些匿名事件上报，用于看大致的活跃与升级情况。
-            </p>
-            <button
-              onClick={() => void refreshAnalytics()}
-              className="mt-3 min-h-9 rounded-xl border border-white/10 px-4 text-sm text-slate-300 active:bg-white/5"
-            >
-              刷新埋点预览
-            </button>
-          </>
-        )}
-      </section>
+      {/* ⑤ 本机埋点：探测仍采集（report 全文含此段），但可见 UI 不向普通用户展示。 */}
 
       <button
         onClick={() => void runAll()}
         disabled={running}
         className="mt-4 min-h-[44px] w-full rounded-xl border border-white/10 px-4 text-sm text-slate-300 disabled:opacity-50"
       >
-        {running ? "探测中…" : "重新探测全部"}
+        {running ? "检测中…" : "重新检测全部"}
       </button>
-
-      {log.length > 0 && (
-        <section className="mt-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-          <p className="mb-1 text-[11px] text-slate-500">操作日志（最新在上）</p>
-          <div className="space-y-1 text-[11px] tabular-nums text-slate-300">
-            {log.map((l, i) => (
-              <p key={i}>{l}</p>
-            ))}
-          </div>
-        </section>
-      )}
     </main>
+  );
+}
+
+// 三档诊断状态徽标：诊断中（琥珀+脉冲）/ 检测到异常（红，本 App 红=异常）/ 无异常（绿）。
+function DiagStatusBadge({ status }: { status: "running" | "error" | "ok" }) {
+  const map = {
+    running: { dot: "bg-amber-400 animate-pulse", text: "诊断中…", cls: "border-amber-400/30 bg-amber-500/10 text-amber-200" },
+    error: { dot: "bg-rose-400", text: "检测到异常", cls: "border-rose-400/40 bg-rose-500/15 text-rose-200" },
+    ok: { dot: "bg-emerald-400", text: "无异常", cls: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200" },
+  } as const;
+  const s = map[status];
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${s.cls}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className={`h-2 w-2 rounded-full ${s.dot}`} />
+      {s.text}
+    </span>
   );
 }
 

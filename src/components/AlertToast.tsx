@@ -33,8 +33,12 @@ export function AlertToast({
   return createPortal(
     <div
       role="alert"
-      className="fixed left-1/2 top-3 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2"
-      style={{ animation: "toast-in 0.25s ease-out" }}
+      className="fixed left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2"
+      style={{
+        // 顶部吃状态栏安全区（Capacitor edge-to-edge 下避免钻到状态栏底下）
+        top: "calc(var(--safe-top) + 0.75rem)",
+        animation: "toast-in 0.25s ease-out",
+      }}
     >
       <div
         className={`rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur ${
