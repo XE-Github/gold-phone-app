@@ -657,17 +657,17 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
     >
       {/* 顶部：整页模式显示标题；两种模式都显示三档诊断状态徽标 */}
       <div className="flex items-center justify-between gap-2">
-        {embedded ? <DiagStatusBadge status={diagStatus} /> : <h1 className="text-lg font-bold">装机诊断</h1>}
+        {embedded ? <DiagStatusBadge status={diagStatus} /> : <h1 className="text-base font-semibold">装机诊断</h1>}
         {!embedded && <DiagStatusBadge status={diagStatus} />}
       </div>
-      <p className="mt-1 text-[11px] text-slate-500">
+      <p className="mt-1 text-[13px] text-slate-500">
         遇到问题时，点下方按钮生成报告，复制发回作者即可。
       </p>
 
       {/* 日志反馈（云端回执）：诊断异常时上报错误摘要，云端落库成功后才下发依次编号。
           四相位：sending=等回执；ok=显示云端编号；failed=诚实显「上报失败」不显假编号；skipped=未上报。 */}
       {fb.phase === "sending" && (
-        <div className="mt-3 rounded-xl border border-sky-400/40 bg-sky-500/10 px-4 py-3 text-[12px] text-sky-200">
+        <div className="mt-3 rounded-xl border border-sky-400/40 bg-sky-500/10 px-4 py-3 text-[13px] text-sky-200">
           ⏳ 检测到异常，正在上报…（需联网，等待云端回执编号，最长约 9 秒）
         </div>
       )}
@@ -677,19 +677,19 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
           <div className="mt-2 text-center font-mono text-3xl font-bold tracking-[0.2em] tabular-nums text-rose-100">
             {fb.fid}
           </div>
-          <div className="mt-2 text-center text-[11px] text-rose-200/80">
+          <div className="mt-2 text-center text-[13px] text-rose-200/80">
             把这 6 位反馈编号告诉作者，即可精确定位本次诊断。
           </div>
         </div>
       )}
       {fb.phase === "failed" && (
-        <div className="mt-3 rounded-xl border border-red-400/50 bg-red-500/10 px-4 py-3 text-[12px] text-red-200">
+        <div className="mt-3 rounded-xl border border-red-400/50 bg-red-500/10 px-4 py-3 text-[13px] text-red-200">
           ⚠️ 检测到异常，但上报失败（未拿到云端回执）。请检查网络/VPN（后台域名国内可能被污染），
           稍后重进诊断重试，或点下方按钮生成全文手动发回。
         </div>
       )}
       {fb.phase === "skipped" && (
-        <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-[12px] text-amber-200">
+        <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-200">
           检测到异常，但本机未上报（未同意匿名统计或暂无上传通道）。可点下方按钮生成全文手动发回。
         </div>
       )}
@@ -703,11 +703,11 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
       >
         📋 生成诊断报告 · 复制
       </button>
-      <p className="mt-1 text-[11px] text-slate-500">
+      <p className="mt-1 text-[13px] text-slate-500">
         {running ? "正在检测…（最长约 8 秒，等完成后点上面按钮更全）" : "检测已完成。"}
       </p>
       {copyHint && (
-        <p className="mt-2 text-[11px] leading-relaxed text-emerald-300">{copyHint}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-emerald-300">{copyHint}</p>
       )}
       {reportText && (
         <div className="mt-2">
@@ -717,9 +717,9 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
             onFocus={(e) => e.currentTarget.select()}
             onClick={(e) => e.currentTarget.select()}
             rows={18}
-            className="w-full select-all rounded-xl border border-amber-400/30 bg-slate-950/80 p-2 text-[11px] leading-relaxed text-slate-200"
+            className="w-full select-all rounded-xl border border-amber-400/30 bg-slate-950/80 p-2 text-[13px] leading-relaxed text-slate-200"
           />
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
             点框内任意处即全选；长按 → 复制(或顶部弹出的「全选/复制」)。把这段发我即可。
           </p>
         </div>
@@ -754,8 +754,8 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
         {/* 行情 warnings 原文：定位「新浪主源不可用」到底是 sina 单挂还是 Gold-API 也挂 */}
         {quotesR?.ok && quotesR.warnings.length > 0 && (
           <div className="mt-3">
-            <p className="mb-1 text-[11px] font-medium text-amber-300/90">行情警告原文</p>
-            <div className="rounded-lg bg-slate-950/50 p-2 text-[11px] leading-relaxed text-amber-200/80">
+            <p className="mb-1 text-[13px] font-medium text-amber-300/90">行情警告原文</p>
+            <div className="rounded-lg bg-slate-950/50 p-2 text-[13px] leading-relaxed text-amber-200/80">
               {quotesR.warnings.map((w, i) => (
                 <p key={i}>· {w}</p>
               ))}
@@ -766,17 +766,17 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
         {/* 关键标的实际值：哪些有价、哪些是「无数据」，一眼看清「数据没显示」是全挂还是部分挂 */}
         {quotesR?.ok && (
           <div className="mt-3">
-            <p className="mb-1 text-[11px] font-medium text-slate-400">关键标的实际值（拿到价=绿，无数据=红）</p>
+            <p className="mb-1 text-[13px] font-medium text-slate-400">关键标的实际值（拿到价=绿，无数据=红）</p>
             <div className="rounded-lg bg-slate-950/40 px-2">
               {instrumentRows(quotesR.quotes).map((row) => (
                 <div
                   key={row.label}
-                  className="flex items-center justify-between gap-2 border-b border-white/5 py-1.5 text-[11px] last:border-0"
+                  className="flex items-center justify-between gap-2 border-b border-white/5 py-1.5 text-[13px] last:border-0"
                 >
                   <span className="shrink-0 text-slate-400">{row.label}</span>
                   <span className="flex min-w-0 items-center gap-2">
                     {row.source && (
-                      <span className="truncate text-[10px] text-slate-600">{row.source}</span>
+                      <span className="min-w-0 truncate text-slate-600">{row.source}</span>
                     )}
                     <span
                       className={`shrink-0 tabular-nums font-medium ${
@@ -795,8 +795,8 @@ export function DiagPanel({ embedded = false }: { embedded?: boolean } = {}) {
         {/* 积存金 warnings 原文 */}
         {bankR?.ok && bankR.warnings.length > 0 && (
           <div className="mt-3">
-            <p className="mb-1 text-[11px] font-medium text-amber-300/90">积存金警告原文</p>
-            <div className="rounded-lg bg-slate-950/50 p-2 text-[11px] leading-relaxed text-amber-200/80">
+            <p className="mb-1 text-[13px] font-medium text-amber-300/90">积存金警告原文</p>
+            <div className="rounded-lg bg-slate-950/50 p-2 text-[13px] leading-relaxed text-amber-200/80">
               {bankR.warnings.map((w, i) => (
                 <p key={i}>· {w}</p>
               ))}
@@ -903,7 +903,7 @@ function DiagStatusBadge({ status }: { status: "running" | "error" | "ok" }) {
   const s = map[status];
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${s.cls}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-semibold ${s.cls}`}
       role="status"
       aria-live="polite"
     >

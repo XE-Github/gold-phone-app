@@ -37,7 +37,7 @@ export function DonateCard() {
               className="w-full max-w-[240px] rounded-xl border border-white/10 bg-white"
               style={{ aspectRatio: `${c.w} / ${c.h}` }}
             />
-            <figcaption className="mt-2 text-[11px] text-slate-500">
+            <figcaption className="mt-2 text-[13px] text-slate-500">
               {c.label}扫码
             </figcaption>
           </figure>

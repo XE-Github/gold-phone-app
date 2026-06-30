@@ -142,12 +142,22 @@ PhoneApp/
 - 无数据显式空状态（`--` / 「暂无」），不画假线、不伪造跳动。
 - JSX 文本不用 ASCII 直引号（用全角「」），避免 `react/no-unescaped-entities`。
 
-### 移动端统一尺寸规范（用 `ui-ux-pro-max` skill 系统化重做后定，须一致遵循）
+### 移动端统一字号系统（用 `ui-ux-pro-max` skill 系统化重做后定，须一致遵循）
 
-- **字号阶梯只用 5 档**：`text-[11px]`（辅助/徽章/时间，下限就是 11px，不再用 9/10px）、`text-sm`（正文/控件/银行名）、`text-base`（卡片标题）、`text-xl`（国际锚价数值）、`text-3xl`（hero 主价）。
+- **字号档位只用 5 档（语义化、收敛——主基调是减重 + 消灭越界散档）**：
+  | 档 | 用途 | Tailwind 类 |
+  |---|---|---|
+  | 辅助 | 徽章/时效/时间/单位/计数/来源/图例/状态 | `text-[13px]`（统一辅助档，**消灭** 散落的 `text-xs/[12px]/[11px]/[10px]`） |
+  | 正文 | select/input/button/银行名/列表项/说明/阈值 | `text-sm`（14px，**密集数据看板的舒适密度，刻意不抬到 16px**） |
+  | 标题 | 各卡 h2、页面 h1 | `text-base font-semibold`（**靠字重拉层级**，不用 `text-lg`） |
+  | 价格数值 | HeroPrice 子卡价 / 积存金价 | `text-lg`（18px） |
+  | 主价 | 仅 HeroPrice 主价 1 处 | `text-[28px]`（由 `text-3xl` 降半档减压迫） |
+  - 例外保留 `text-3xl`：启动页/同意门 hero 标题、诊断反馈 6 位编号（欢迎/核心大数字处）。
+  - 例外保留 `text-[11px]`：仅趋势图叠在画布上的轴单位提示 / 悬停 tooltip（极挤处硬下限，升档会遮挡曲线）；lightweight-charts 画布内 `fontSize:11` 同理不动。
+- **核心数据绝不被截断**（`ui-ux-pro-max` 准则）：价格/汇率/阈值/时间(HH:MM:SS) 一律 `whitespace-nowrap`，放不下靠缩档或调列宽，**绝不 `truncate`**；仅名称类（标的名/银行名/数据源）可 `truncate`。
 - **卡片外壳统一** `rounded-2xl p-4`（告别 3xl/p-5/p-3 混用）；**内部子卡** `rounded-xl p-3`（比外壳小一级形成层级）。
 - **触控区**：主控件（输入框/下拉/添加/下载安装等主动作）`min-h-11`（44px）；列表内联次级按钮（启用/删除/检查更新/通知开关）`min-h-9`（36px）且彼此间距 `gap-2`（≥8px）。
-- **防溢出三件套**：横向布局子项加 `min-w-0` + 文本 `truncate`，固定元素加 `shrink-0`；全局 `html,body { overflow-x: hidden }` 兜底（杜绝左右拖动）。
+- **防溢出三件套**：横向布局子项加 `min-w-0` + 名称类 `truncate`，固定/核心元素加 `shrink-0`；全局 `html,body { overflow-x: hidden }` 兜底（杜绝左右拖动）。
 - **滚动条**：`body` 隐藏滚动条（`scrollbar-width:none` + `::-webkit-scrollbar{display:none}` + `-ms-overflow-style:none`）但保留滚动；`html` 加 `touch-action: manipulation`（去 300ms 点击延迟）+ `overscroll-behavior-y: contain`（防误触下拉）。
 - 容器统一横向 `px-4`，header 不再额外缩进，与卡片左右对齐。
 

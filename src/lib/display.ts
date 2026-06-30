@@ -144,33 +144,38 @@ export function fmtTime(timestamp?: string): string {
 
 // 行情数据「时效性」徽章：实时 / 近实时 / 延时 / 理论值 / 估算。
 // 诚实原则：只依据 source 子串判定，绝不臆造。
-export type Freshness = { label: string; cls: string; dot: string };
+// live：是否「活的实时类」数据——决定圆点是否呼吸(animate-pulse)。
+//   实时/近实时/最新牌价=true(在动)；理论值/估算/延时/—=false(给"理论值"加呼吸会误导成实时)。
+export type Freshness = { label: string; cls: string; dot: string; live: boolean };
 export function freshnessBadge(source?: string): Freshness {
   const s = source ?? "";
   if (s.includes("自动计算") || s.includes("理论"))
-    return { label: "理论值", cls: "text-amber-300", dot: "bg-amber-400" };
+    return { label: "理论值", cls: "text-amber-300", dot: "bg-amber-400", live: false };
   if (s.includes("估算"))
-    return { label: "估算", cls: "text-slate-400", dot: "bg-slate-500" };
+    return { label: "估算", cls: "text-slate-400", dot: "bg-slate-500", live: false };
   if (s.includes("秒级") || s.includes("近实时"))
-    return { label: "近实时", cls: "text-emerald-300", dot: "bg-emerald-400" };
+    return { label: "近实时", cls: "text-emerald-300", dot: "bg-emerald-400", live: true };
   if (s.includes("实时"))
-    return { label: "实时", cls: "text-emerald-300", dot: "bg-emerald-400" };
+    return { label: "实时", cls: "text-emerald-300", dot: "bg-emerald-400", live: true };
   if (s.includes("延时"))
-    return { label: "延时", cls: "text-amber-300", dot: "bg-amber-400" };
+    return { label: "延时", cls: "text-amber-300", dot: "bg-amber-400", live: false };
   // 其余真实源（官网/京东/汇喵牌价等）视为最新牌价
   if (s.includes("官网") || s.includes("京东") || s.includes("汇喵"))
-    return { label: "最新牌价", cls: "text-emerald-300", dot: "bg-emerald-400" };
-  return { label: "—", cls: "text-slate-500", dot: "bg-slate-600" };
+    return { label: "最新牌价", cls: "text-emerald-300", dot: "bg-emerald-400", live: true };
+  return { label: "—", cls: "text-slate-500", dot: "bg-slate-600", live: false };
 }
 
-// 积存金来源徽章文案 + 颜色
+// 积存金来源徽章文案 + 颜色。
+// 颜色统一用灰（text-slate-500）：数据源是「次要补充信息」，醒目/活性由第一行的时效徽章
+// （●实时 绿点呼吸）承担；此处再用彩色会与之竞争视觉，故一律低调灰。文案区分来源即可。
 export function bankSourceBadge(source?: string): { label: string; cls: string } {
-  if (!source) return { label: "估算", cls: "text-slate-500" };
+  const cls = "text-slate-500";
+  if (!source) return { label: "估算", cls };
   if (source.includes("工商银行官网") || source.includes("建设银行官网"))
-    return { label: "官网直连", cls: "text-emerald-400" };
-  if (source.includes("京东积存金")) return { label: "京东平台", cls: "text-emerald-400" };
-  if (source.includes("汇喵")) return { label: "第三方聚合", cls: "text-sky-300" };
-  return { label: "估算", cls: "text-slate-500" };
+    return { label: "官网直连", cls };
+  if (source.includes("京东积存金")) return { label: "京东平台", cls };
+  if (source.includes("汇喵")) return { label: "第三方聚合", cls };
+  return { label: "估算", cls };
 }
 
 export function isBankReal(source?: string): boolean {

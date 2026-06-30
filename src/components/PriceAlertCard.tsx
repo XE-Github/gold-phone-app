@@ -79,20 +79,12 @@ export function PriceAlertCard({
           <button
             onClick={enableNotify}
             disabled={perm === "unsupported"}
-            className={`min-h-9 shrink-0 rounded-lg px-3 text-[11px] font-medium disabled:opacity-60 ${notifyBtn.cls}`}
+            className={`min-h-9 shrink-0 rounded-lg px-3 text-[13px] font-medium disabled:opacity-60 ${notifyBtn.cls}`}
           >
             {notifyBtn.text}
           </button>
         )}
       </div>
-
-      {/* 原生壳的「已解决 denied 死结」说明，仅装机时显示 */}
-      {native && (
-        <p className="mt-2 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.07] p-2.5 text-[11px] leading-relaxed text-emerald-100/85">
-          ✅ App 版用<b>系统原生通知</b>，权限弹窗由系统弹出，不再像网页那样「拒绝一次就永久弹不出来」。
-          若曾在系统里关掉，去「系统设置 → 应用 → 黄金看板 → 通知」开回即可。
-        </p>
-      )}
 
       {/* 新建规则：标的占 2/3、方向占 1/3（min-w-0 防长名撑破横向） */}
       <div className="mt-3 space-y-2.5">
@@ -137,11 +129,11 @@ export function PriceAlertCard({
             添加
           </button>
         </div>
-        {error && <p className="text-xs text-rose-400">{error}</p>}
+        {error && <p className="text-[13px] text-rose-400">{error}</p>}
       </div>
 
-      {/* 规则列表：子卡纵向堆叠（信息行 / 元信息行 / 操作行），避免按钮挤掉阈值。
-          操作按钮独占整行 → 升 min-h-11(44px) 守触摸目标。 */}
+      {/* 规则列表：左右两栏——左[信息行 + 今日计数]可截、右[操作按钮组]垂直居中。
+          按钮 ≥44px 守触摸目标；右栏 items-center 让按钮相对整张卡片高度上下居中。 */}
       <div className="mt-4 space-y-2">
         {!hydrated ? (
           <p className="text-sm text-slate-500">加载本地提醒规则…</p>
@@ -156,46 +148,61 @@ export function PriceAlertCard({
             return (
               <div
                 key={rule.id}
-                className="flex flex-col gap-2 rounded-xl border border-white/5 bg-slate-900/40 p-3"
+                className="flex items-center gap-2 rounded-xl border border-white/5 bg-slate-900/40 p-3"
               >
-                {/* 信息行：标的名(可截断) + 阈值(完整不截断) + 今日计数徽章 */}
-                <div className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1 text-sm text-white">
-                    <span className="align-middle">{meta?.shortName ?? rule.instrumentId}</span>{" "}
+                {/* 左栏：信息行 + 今日计数（可截，占满剩余宽度） */}
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  {/* 信息行：标的名(可截断) + 阈值+单位(完整不截断) */}
+                  <div className="flex items-baseline gap-1.5 text-sm text-white">
+                    <span className="min-w-0 truncate">{meta?.shortName ?? rule.instrumentId}</span>
+                    {/* 阈值是核心数据：whitespace-nowrap + shrink-0 永不截；单位紧跟阈值后 */}
                     <span
-                      className={`whitespace-nowrap align-middle ${
+                      className={`shrink-0 whitespace-nowrap tabular-nums ${
                         rule.direction === "above" ? "text-rose-400" : "text-emerald-400"
                       }`}
                     >
                       {rule.direction === "above" ? "≥" : "≤"} {fmtPrice(rule.threshold)}
+                      {meta?.unit ? <span className="ml-1 text-slate-500">{meta.unit}</span> : null}
                     </span>
                   </div>
+                  {/* 今日计数：信息行下方普通文字（不用胶囊徽章），左对齐 */}
                   {todayCount > 0 && (
-                    <span className="shrink-0 rounded-full bg-slate-700/50 px-2 py-0.5 text-[11px] tabular-nums text-slate-300">
+                    <p className="text-[13px] tabular-nums text-slate-400">
                       今日 {todayCount} 次
-                    </span>
+                    </p>
                   )}
                 </div>
-                {/* 元信息行 */}
-                <div className="text-[11px] text-slate-500">🔔 有声 · {meta?.unit}</div>
-                {/* 操作行：独占整行右对齐，按钮 ≥44px 触摸目标 */}
-                <div className="flex justify-end gap-2">
+                {/* 右栏：操作按钮组，items-center 让按钮相对整张卡片高度上下居中（图标省地方，红绿语义色保留） */}
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     onClick={() => onToggle(rule.id)}
-                    className={`min-h-11 rounded-lg px-4 text-[11px] font-medium ${
+                    aria-label={rule.enabled ? "停用此提醒" : "启用此提醒"}
+                    title={rule.enabled ? "启用中（点击停用）" : "已停用（点击启用）"}
+                    className={`flex min-h-11 min-w-11 items-center justify-center rounded-lg ${
                       rule.enabled
                         ? "bg-emerald-500/15 text-emerald-300"
                         : "bg-slate-700/40 text-slate-400"
                     }`}
                   >
-                    {rule.enabled ? "启用中" : "已停用"}
+                    {/* 开关 toggle：启用=圆点在右(开)、停用=圆点在左(关) */}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-5 w-5">
+                      <rect x="1" y="6" width="22" height="12" rx="6" />
+                      <circle cx={rule.enabled ? 17 : 7} cy="12" r="3" fill="currentColor" stroke="none" />
+                    </svg>
                   </button>
                   <button
                     onClick={() => onRemove(rule.id)}
-                    className="min-h-11 rounded-lg bg-rose-500/10 px-4 text-[11px] font-medium text-rose-300"
                     aria-label="删除规则"
+                    title="删除此提醒"
+                    className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-rose-500/10 text-rose-300"
                   >
-                    删除
+                    {/* 垃圾桶 */}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                      <path d="M19 6v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
                   </button>
                 </div>
               </div>

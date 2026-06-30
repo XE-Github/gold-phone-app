@@ -52,14 +52,14 @@ export function AlertToast({
             <p className="text-sm font-semibold text-white">
               🔔 {meta?.shortName ?? fired.rule.instrumentId} {dir}
             </p>
-            <p className="mt-0.5 text-xs text-slate-200">
+            <p className="mt-0.5 text-[13px] text-slate-200">
               当前 <span className="tabular-nums">{fmtPrice(fired.price)}</span>{" "}
-              {meta?.unit} · 阈值 {fmtPrice(fired.rule.threshold)}
+              {meta?.unit} · 阈值 <span className="tabular-nums">{fmtPrice(fired.rule.threshold)}</span>
             </p>
           </div>
           <button
             onClick={onDismiss}
-            className="min-h-9 shrink-0 rounded-lg bg-white/10 px-3 text-xs font-medium text-white"
+            className="min-h-9 shrink-0 rounded-lg bg-white/10 px-3 text-[13px] font-medium text-white"
             aria-label="关闭提示"
           >
             知道了

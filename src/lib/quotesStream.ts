@@ -10,6 +10,7 @@
 
 import type { Quote, QuotesPayload } from "./types";
 import { requestRoute, subscribeStream, type StreamStatus } from "./apiBase";
+import { isMockMode, mockPayload } from "./mockData";
 
 export type { StreamStatus };
 
@@ -20,6 +21,14 @@ export function subscribeQuotes(
   onUpdate: (payload: QuotesPayload) => void,
   onStatus?: (status: StreamStatus) => void,
 ): () => void {
+  // ⚠️ MOCK 短路：仅浏览器 ?mock=1 预览排版用，直接喂假数据、不碰任何网络。
+  //    生产/真机不带此参数，下面整段不会执行，行为与从前完全一致。
+  if (isMockMode()) {
+    onStatus?.("connected");
+    queueMicrotask(() => onUpdate(mockPayload()));
+    return () => {};
+  }
+
   let disposed = false;
   let unsubscribeStream: (() => void) | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;

@@ -121,7 +121,7 @@ function parseSinaSgeSpot(fields: string[]): Parsed | null {
     dayHigh,
     dayLow,
     timestamp: buildChinaTimestamp(date, time),
-    sourceOverride: "新浪财经·SGE现货（近实时·真实，秒级）",
+    sourceOverride: "新浪财经·SGE现货（实时·真实）",
   };
 }
 

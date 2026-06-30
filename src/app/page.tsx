@@ -10,6 +10,7 @@ import { BankGoldCompare } from "@/components/BankGoldCompare";
 import { UpdateCard } from "@/components/UpdateCard";
 import { DonateCard } from "@/components/DonateCard";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
+import { useAndroidBackButton, useDoubleBackExit } from "@/lib/useAndroidBackButton";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
 import { DiagPanel } from "@/components/DiagPanel";
@@ -39,10 +40,6 @@ export default function Home() {
 function HomeContent() {
   const [quotes, setQuotes] = useState<Map<string, Quote>>(new Map());
   const [bankQuotes, setBankQuotes] = useState<Map<string, Quote>>(new Map());
-  const [bankMeta, setBankMeta] = useState<{ realCount: number; total: number }>({
-    realCount: 0,
-    total: 0,
-  });
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
@@ -53,6 +50,9 @@ function HomeContent() {
   // 装机诊断：App 内静态导出子路由跳不动，故改为同页全屏弹层打开诊断面板。
   // 入口已从首页 footer 移到「我的」页（由 MineTab 调 onOpenDiag 触发）。
   const [showDiag, setShowDiag] = useState(false);
+  // 捐赠二级页：原锁在 MineTab 内部，但返回键决策住在 HomeContent，读不到内部 state，
+  // 故提升到 HomeContent（与 showDiag 同级），由 MineTab 受控触发开、决策/返回条触发关。
+  const [donateOpen, setDonateOpen] = useState(false);
   const mounted = useRef(true);
 
   // 价格提醒：监控行情 + 银行积存金价格表（取 price）。
@@ -65,6 +65,19 @@ function HomeContent() {
   }, [quotes, bankQuotes]);
 
   const alerts = usePriceAlerts(priceById);
+
+  // 安卓系统返回键逐级返回（仅原生壳生效；web/dev 守卫下不注册）。
+  // 注册 backButton 会接管 Capacitor 默认 exitApp → 首页退出改由双击逻辑负责。
+  const { requestExit, showHint } = useDoubleBackExit();
+  // 决策回调住 HomeContent，读到的是最新 state（hook 内用 ref 持有，避免 stale closure）。
+  // 优先级（高→低，每按一次只消费一层）：
+  useAndroidBackButton(() => {
+    if (alerts.fired) { alerts.dismissFired(); return; } // 1 关提醒弹窗
+    if (donateOpen)   { setDonateOpen(false);  return; } // 2a 关捐赠二级页
+    if (showDiag)     { setShowDiag(false);    return; } // 2b 关诊断二级页
+    if (tab === "mine") { setTab("home");      return; } // 3 从「我的」回首页
+    requestExit();                                       // 4 首页：双击退出
+  });
 
   useEffect(() => {
     mounted.current = true;
@@ -84,10 +97,6 @@ function HomeContent() {
           }
           setQuotes(toMap(market));
           setBankQuotes(toMap(bank));
-          setBankMeta({
-            realCount: data.bankRealCount ?? 0,
-            total: data.bankTotal ?? bank.length,
-          });
           setWarnings(data.warnings ?? []);
           setLastUpdate(data.serverTime);
         },
@@ -121,7 +130,6 @@ function HomeContent() {
           <HomeTab
             quotes={quotes}
             bankQuotes={bankQuotes}
-            bankMeta={bankMeta}
             status={status}
             lastUpdate={lastUpdate}
             warnings={warnings}
@@ -130,14 +138,33 @@ function HomeContent() {
           />
         </div>
         <div className={tab === "mine" ? "" : "hidden"}>
-          <MineTab onOpenDiag={() => setShowDiag(true)} />
+          <MineTab
+            onOpenDiag={() => setShowDiag(true)}
+            onOpenDonate={() => setDonateOpen(true)}
+          />
         </div>
       </main>
 
       <TabBar tab={tab} onChange={setTab} />
 
+      {/* 捐赠二级页：状态提升到 HomeContent 后，与诊断页同级渲染（全屏壳 + 顶部「← 返回」条） */}
+      {donateOpen && <DonateView onBack={() => setDonateOpen(false)} />}
+
       {/* 装机诊断二级页：与捐赠页同款全屏壳 + 顶部「← 返回」条（统一二级页退出体验），内部独立滚动 */}
       {showDiag && <DiagView onBack={() => setShowDiag(false)} />}
+
+      {/* 首页双击退出提示：第一次按返回键弹出，2s 内再按才真退出（防误触）。
+          顶在 TabBar 之上居中，辅助档圆角小条；showHint 由 useDoubleBackExit 控制。 */}
+      {showHint && (
+        <div
+          className="pointer-events-none fixed left-1/2 z-[60] -translate-x-1/2 rounded-full bg-slate-800/95 px-4 py-2 text-[13px] text-slate-100 shadow-lg backdrop-blur"
+          style={{ bottom: "calc(5rem + var(--safe-bottom))" }}
+          role="status"
+          aria-live="polite"
+        >
+          再按一次退出
+        </div>
+      )}
     </>
   );
 }
@@ -158,7 +185,6 @@ function StickyHeader({ children }: { children: React.ReactNode }) {
 function HomeTab({
   quotes,
   bankQuotes,
-  bankMeta,
   status,
   lastUpdate,
   warnings,
@@ -167,7 +193,6 @@ function HomeTab({
 }: {
   quotes: Map<string, Quote>;
   bankQuotes: Map<string, Quote>;
-  bankMeta: { realCount: number; total: number };
   status: StreamStatus;
   lastUpdate: number | null;
   warnings: string[];
@@ -179,14 +204,14 @@ function HomeTab({
       <StickyHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-white">黄金看板</h1>
+            <h1 className="text-base font-semibold text-white">黄金看板</h1>
           </div>
           <StatusPill status={status} lastUpdate={lastUpdate} />
         </div>
       </StickyHeader>
 
       {warnings.length > 0 && (
-        <div className="mb-3 space-y-0.5 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] p-3 text-[11px] leading-relaxed text-amber-200/80">
+        <div className="mb-3 space-y-0.5 rounded-xl border border-amber-400/20 bg-amber-500/[0.07] p-3 text-[13px] leading-relaxed text-amber-200/80">
           {warnings.map((w, i) => (
             <p key={i}>· {w}</p>
           ))}
@@ -194,7 +219,7 @@ function HomeTab({
       )}
 
       <div className="space-y-3">
-        <HeroPrice quotes={quotes} serverTime={lastUpdate} />
+        <HeroPrice quotes={quotes} />
         <PriceAlertCard
           rules={alerts.rules}
           hydrated={alerts.hydrated}
@@ -205,11 +230,7 @@ function HomeTab({
           onToggle={alerts.toggleRule}
           onRequestPermission={alerts.requestNotificationPermission}
         />
-        <BankGoldCompare
-          quotes={bankQuotes}
-          realCount={bankMeta.realCount}
-          total={bankMeta.total}
-        />
+        <BankGoldCompare quotes={bankQuotes} />
         <TrendChart quotes={quotes} />
       </div>
     </>
@@ -218,14 +239,19 @@ function HomeTab({
 
 // 我的 Tab：列表式入口（移动 App 标准「我的」长相）。
 //   - 检查更新：保留卡片直接展开（本就是一键操作）。
-//   - 捐赠 / 装机诊断：列表行，点进二级全屏页（捐赠走页内 sub state；诊断复用 HomeContent 的 showDiag 弹层）。
-function MineTab({ onOpenDiag }: { onOpenDiag: () => void }) {
-  const [sub, setSub] = useState<null | "donate">(null);
-
+//   - 捐赠 / 装机诊断：列表行，点进二级全屏页。两者的开关状态都提升到 HomeContent
+//     （由 onOpenDonate / onOpenDiag 触发），以便系统返回键决策能逐级关闭它们。
+function MineTab({
+  onOpenDiag,
+  onOpenDonate,
+}: {
+  onOpenDiag: () => void;
+  onOpenDonate: () => void;
+}) {
   return (
     <>
       <StickyHeader>
-        <h1 className="text-lg font-bold text-white">我的</h1>
+        <h1 className="text-base font-semibold text-white">我的</h1>
       </StickyHeader>
 
       <div className="space-y-3">
@@ -240,7 +266,7 @@ function MineTab({ onOpenDiag }: { onOpenDiag: () => void }) {
                 <path d="M19 14c1.5-1.5 3-3.2 3-5.5A3.5 3.5 0 0 0 12 5 3.5 3.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z" />
               </svg>
             }
-            onClick={() => setSub("donate")}
+            onClick={onOpenDonate}
           />
           <div className="h-px bg-white/5" />
           <Row
@@ -254,9 +280,6 @@ function MineTab({ onOpenDiag }: { onOpenDiag: () => void }) {
           />
         </div>
       </div>
-
-      {/* 捐赠二级页：全屏覆盖，顶部返回条吃安全区 */}
-      {sub === "donate" && <DonateView onBack={() => setSub(null)} />}
     </>
   );
 }
@@ -382,7 +405,7 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
               key={it.key}
               onClick={() => onChange(it.key)}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
+              className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[13px] font-medium transition-colors ${
                 active ? "text-amber-400" : "text-slate-500 active:text-slate-300"
               }`}
             >
@@ -407,10 +430,10 @@ function StatusPill({ status, lastUpdate }: { status: StreamStatus; lastUpdate: 
     <div className="flex shrink-0 flex-col items-end">
       <div className="flex items-center gap-1.5">
         <span className={`h-2 w-2 rounded-full ${s.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
-        <span className={`text-xs ${s.cls}`}>{s.text}</span>
+        <span className={`text-[13px] ${s.cls}`}>{s.text}</span>
       </div>
       {lastUpdate && (
-        <span className="text-[11px] tabular-nums text-slate-600">
+        <span className="text-[13px] tabular-nums text-slate-600">
           {new Date(lastUpdate).toLocaleTimeString("zh-CN", {
             hour: "2-digit",
             minute: "2-digit",

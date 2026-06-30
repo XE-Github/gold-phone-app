@@ -364,9 +364,10 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-white">趋势图 · 国际黄金实时</h2>
-        <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        <h2 className="text-base font-semibold text-white">趋势图</h2>
+        {/* 与 FreshnessBadge pill 同款外观（中性胶囊 + 实时绿 + 呼吸圆点）：国际金价分时为真实时数据 */}
+        <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.06] px-2 py-1 text-[13px] text-emerald-300">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
           UTC 实时
         </span>
       </div>
@@ -380,7 +381,7 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
           return (
             <span
               key={def.instrumentId}
-              className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/40 px-2 py-1 text-[11px]"
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900/40 px-2 py-1 text-[13px]"
             >
               <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: def.color }} />
               <span className="text-slate-300">{def.label}</span>
@@ -395,7 +396,8 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
       </div>
 
       <div className="relative mt-2">
-        {/* 轴单位提示 */}
+        {/* 轴单位提示 / 悬停 tooltip：叠在画布上的绝对定位标签，保留 11px 硬下限——
+            升档会挤占画布有限空间、遮挡曲线，此处刻意不归并到 13px。 */}
         <div className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[11px] font-medium text-sky-300/80">
           ¥/克
         </div>
@@ -413,7 +415,7 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-white/10 bg-slate-950/50 px-6 text-center">
             <div>
               <p className="text-sm font-medium text-slate-200">暂无分时数据</p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
                 分时接口暂不可达（非交易时段或网络问题），稍后自动重试。
               </p>
             </div>
@@ -444,13 +446,7 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
-        {/* 说明整行（UTC 徽章内联在文字前），leading-relaxed 正常折行，
-            不与高低数值争抢同一 flex 行 → 避免中文被挤成一字一行 */}
-        <p className="basis-full leading-relaxed">
-          <span className="mr-1.5 rounded bg-slate-900/70 px-1.5 py-0.5 text-slate-500">UTC</span>
-          · 伦敦金当日分时（新浪国际期货，UTC时间）+ 人民币理论金价（按当前汇率换算），右端追加实时点
-        </p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-slate-600">
         {xauUsd?.dayHigh != null && xauUsd.dayLow != null && (
           <span
             className="shrink-0 tabular-nums text-slate-400"

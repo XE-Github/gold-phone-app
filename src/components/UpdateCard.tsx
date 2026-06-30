@@ -62,12 +62,12 @@ export function UpdateCard() {
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-white">检查更新</h2>
-          <p className="text-[11px] tabular-nums text-slate-500">当前版本 v{cur}</p>
+          <p className="text-[13px] tabular-nums text-slate-500">当前版本 v{cur}</p>
         </div>
         <button
           onClick={onCheck}
           disabled={phase === "checking" || phase === "downloading" || phase === "installing"}
-          className="min-h-9 shrink-0 rounded-lg bg-sky-500/15 px-3 text-[11px] font-medium text-sky-300 disabled:opacity-50"
+          className="min-h-9 shrink-0 rounded-lg bg-sky-500/15 px-3 text-[13px] font-medium text-sky-300 disabled:opacity-50"
         >
           {phase === "checking" ? "检查中…" : "检查更新"}
         </button>
@@ -75,14 +75,14 @@ export function UpdateCard() {
 
       {/* 结果区 */}
       {phase === "result" && info && (
-        <div className="mt-3 text-xs">
+        <div className="mt-3 text-[13px]">
           {info.hasUpdate ? (
             <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.07] p-3">
               <p className="text-emerald-200">
                 发现新版本 <b>{info.latestVersion}</b>（当前 v{info.currentVersion}）
               </p>
               {info.releaseNotes && (
-                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-emerald-100/70">
+                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-emerald-100/70">
                   {info.releaseNotes}
                 </pre>
               )}
@@ -114,7 +114,7 @@ export function UpdateCard() {
 
       {/* 下载/安装进度 */}
       {(phase === "downloading" || phase === "installing") && (
-        <div className="mt-3 text-xs text-slate-300">
+        <div className="mt-3 text-[13px] text-slate-300">
           {phase === "downloading" ? (
             <p>正在下载新版本…{pct !== null ? ` ${pct}%` : ""}</p>
           ) : (
@@ -125,7 +125,7 @@ export function UpdateCard() {
 
       {/* 错误 */}
       {phase === "error" && (
-        <div className="mt-3 rounded-xl border border-rose-400/20 bg-rose-500/[0.08] p-3 text-xs text-rose-200">
+        <div className="mt-3 rounded-xl border border-rose-400/20 bg-rose-500/[0.08] p-3 text-[13px] text-rose-200">
           <p>{msg || "检查更新出错"}</p>
           {info?.releasePageUrl && (
             <a

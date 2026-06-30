@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { getConsent, setConsent, trackAppOpen } from "@/lib/analytics";
+import { isMockMode } from "@/lib/mockData";
 
 type Decision = "loading" | "asking" | "granted";
 
@@ -35,6 +36,11 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
   // （与 page.tsx / DiagPanel 同套路）。挂载前停在 loading 占位，避免 SSR/hydration 闪烁。
   useEffect(() => {
     queueMicrotask(() => {
+      // ⚠️ MOCK 预览(?mock=1)：直接放行，不记埋点、不持久化同意——仅浏览器排版预览用。
+      if (isMockMode()) {
+        setDecision("granted");
+        return;
+      }
       const c = getConsent();
       if (c === "granted") {
         setDecision("granted");
