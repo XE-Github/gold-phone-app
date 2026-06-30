@@ -199,6 +199,7 @@ function HomeTab({
           rules={alerts.rules}
           hydrated={alerts.hydrated}
           priceById={priceById}
+          counts={alerts.counts}
           onAdd={alerts.addRule}
           onRemove={alerts.removeRule}
           onToggle={alerts.toggleRule}

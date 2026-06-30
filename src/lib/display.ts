@@ -51,6 +51,14 @@ export const QUICK_METAS: QuoteMeta[] = [
     unit: "元/克",
     hint: "上海期货交易所黄金主力合约。",
   },
+  // 黄金 ETF（基金份额，非 SGE 现货；单价约 8 元/份，跟踪国内金价）
+  {
+    instrumentId: "gold-etf-518880",
+    name: "黄金ETF（518880·华安）",
+    shortName: "518880 ETF",
+    unit: "元/份",
+    hint: "华安黄金ETF，沪市场内交易基金，跟踪国内黄金价格。",
+  },
 ];
 
 // 价格提醒可选标的（与主程序对齐）。含行情标的 + 8 家银行积存金。
@@ -62,14 +70,12 @@ export const ALERT_METAS: QuoteMeta[] = [
   { instrumentId: "sge-au9999", name: "SGE Au99.99", shortName: "Au99.99", unit: "元/克" },
   { instrumentId: "sge-autd", name: "SGE Au(T+D)", shortName: "Au(T+D)", unit: "元/克" },
   { instrumentId: "shfe-au-main", name: "沪金主力", shortName: "沪金主力", unit: "元/克" },
+  // 积存金提醒选项与 BANK_GOLD_PRODUCTS 对齐，仅 5 家（顺序：工商→浙商→民生→广发→建设）
   { instrumentId: "icbc-acc-gold", name: "工商银行积存金", shortName: "工行积存金", unit: "元/克" },
-  { instrumentId: "ccb-acc-gold", name: "建设银行积存金", shortName: "建行积存金", unit: "元/克" },
-  { instrumentId: "boc-acc-gold", name: "中国银行积存金", shortName: "中行积存金", unit: "元/克" },
-  { instrumentId: "cmb-acc-gold", name: "招商银行积存金", shortName: "招行积存金", unit: "元/克" },
-  { instrumentId: "cib-acc-gold", name: "兴业银行积存金", shortName: "兴业积存金", unit: "元/克" },
   { instrumentId: "czbank-acc-gold", name: "浙商银行积存金", shortName: "浙商积存金", unit: "元/克" },
   { instrumentId: "cmbc-acc-gold", name: "民生银行积存金", shortName: "民生积存金", unit: "元/克" },
   { instrumentId: "cgb-acc-gold", name: "广发银行积存金", shortName: "广发积存金", unit: "元/克" },
+  { instrumentId: "ccb-acc-gold", name: "建设银行积存金", shortName: "建行积存金", unit: "元/克" },
 ];
 
 export function metaFor(instrumentId: string): QuoteMeta | undefined {
@@ -86,10 +92,24 @@ export function fmtPrice(price: number | undefined, digits = 2): string {
   });
 }
 
+// 计价货币符号：按 meta.unit 判定（unit 是单一事实源，新标的填对 unit 即自动正确）。
+// ⚠️ 必须先判"美元"——它本身含"元"，顺序反了会把美元标的标成 ¥。
+export function currencySymbol(unit?: string): "¥" | "$" | "" {
+  if (!unit) return "";
+  if (unit.includes("美元")) return "$";
+  if (unit.includes("元")) return "¥";
+  return "";
+}
+
+export function currencySymbolForId(id: string): "¥" | "$" | "" {
+  return currencySymbol(metaFor(id)?.unit);
+}
+
 export type ChangeView = { text: string; up: boolean } | null;
 
 // 涨跌展示（红涨绿跌）。无 change/changePercent 返回 null。
-export function changeView(quote?: Quote): ChangeView {
+// symbol：涨跌额的计价货币符号（¥/$/""），插在正负号与数字之间，如 "+¥2.85"；百分比不带符号。
+export function changeView(quote?: Quote, symbol = ""): ChangeView {
   if (!quote) return null;
   const hasPct = quote.changePercent !== undefined && Number.isFinite(quote.changePercent);
   const hasAmt = quote.change !== undefined && Number.isFinite(quote.change);
@@ -98,7 +118,7 @@ export function changeView(quote?: Quote): ChangeView {
   const basis = quote.changePercent ?? quote.change ?? 0;
   const up = basis >= 0;
   const sign = up ? "+" : "";
-  const amt = hasAmt ? `${sign}${quote.change!.toFixed(2)}` : "";
+  const amt = hasAmt ? `${sign}${symbol}${quote.change!.toFixed(2)}` : "";
   const pct = hasPct ? `${sign}${quote.changePercent!.toFixed(2)}%` : "";
   const text = amt && pct ? `${amt} (${pct})` : amt || pct;
   return { text, up };

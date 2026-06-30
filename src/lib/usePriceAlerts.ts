@@ -11,6 +11,8 @@ import {
 } from "./notify";
 
 const STORAGE_KEY = "gold-phone-price-alerts-v1";
+// 今日触发计数（与规则存储解耦）。带 day 标记，跨自然日丢弃归零。
+const COUNT_KEY = "gold-phone-alert-counts-v1";
 
 export type AlertDirection = "above" | "below";
 
@@ -48,6 +50,37 @@ function loadRules(): AlertRule[] {
   }
 }
 
+// 本地自然日（设备时区），en-CA 输出 YYYY-MM-DD，便于字符串比对。
+function todayKey(): string {
+  return new Date().toLocaleDateString("en-CA");
+}
+
+type AlertCounts = { day: string; byRule: Record<string, number> };
+
+// 读取今日触发计数：day 不是今天则丢弃归零（跨天重置）。
+function loadCounts(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(COUNT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as AlertCounts;
+    if (!parsed || typeof parsed !== "object" || parsed.day !== todayKey()) return {};
+    return parsed.byRule && typeof parsed.byRule === "object" ? parsed.byRule : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistCounts(byRule: Record<string, number>) {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: AlertCounts = { day: todayKey(), byRule };
+    window.localStorage.setItem(COUNT_KEY, JSON.stringify(payload));
+  } catch {
+    /* 忽略存储失败 */
+  }
+}
+
 // 简单提示音（Web Audio，无需音频文件）。浏览器要求用户先交互才能出声。
 function playBeep() {
   try {
@@ -77,6 +110,8 @@ export function usePriceAlerts(priceById: Map<string, number>) {
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [fired, setFired] = useState<FiredAlert | null>(null);
+  // 今日各规则触发次数（按价格穿越阈值累计，跨自然日归零）
+  const [counts, setCounts] = useState<Record<string, number>>({});
   // 记录每条规则当前是否处于"已触发"锁定态（价格离开阈值才解锁）
   const lockedRef = useRef<Record<string, boolean>>({});
 
@@ -85,6 +120,7 @@ export function usePriceAlerts(priceById: Map<string, number>) {
   useEffect(() => {
     queueMicrotask(() => {
       setRules(loadRules());
+      setCounts(loadCounts()); // 含跨天重置：非今天的旧计数被丢弃
       setHydrated(true);
     });
     // 提前注册通知 Service Worker（手机弹窗依赖它；已授权才真正发通知）
@@ -119,11 +155,17 @@ export function usePriceAlerts(priceById: Map<string, number>) {
         lockedRef.current[rule.id] = true; // 锁定，避免重复触发
         const dir = rule.direction === "above" ? "突破上限" : "跌破下限";
         setFired({ rule, price, at: Date.now() });
+        // 今日触发次数 +1（按穿越累计，落盘并带当天 day）
+        setCounts((prev) => {
+          const next = { ...prev, [rule.id]: (prev[rule.id] ?? 0) + 1 };
+          persistCounts(next);
+          return next;
+        });
         void showSystemNotification(
           "黄金价格提醒",
           `价格 ${price.toFixed(2)} ${dir} ${rule.threshold.toFixed(2)}`,
         );
-        if (rule.sound) playBeep();
+        playBeep(); // 一律出声（App 默认通知带提示音）
       } else if (!meets && lockedRef.current[rule.id]) {
         lockedRef.current[rule.id] = false; // 离开阈值，复位
       }
@@ -138,6 +180,14 @@ export function usePriceAlerts(priceById: Map<string, number>) {
   const removeRule = useCallback((id: string) => {
     delete lockedRef.current[id];
     setRules((prev) => prev.filter((r) => r.id !== id));
+    // 同步清掉该规则的今日计数，避免 localStorage 泄漏
+    setCounts((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      persistCounts(next);
+      return next;
+    });
   }, []);
 
   const toggleRule = useCallback((id: string) => {
@@ -156,6 +206,7 @@ export function usePriceAlerts(priceById: Map<string, number>) {
     rules,
     hydrated,
     fired,
+    counts,
     addRule,
     removeRule,
     toggleRule,

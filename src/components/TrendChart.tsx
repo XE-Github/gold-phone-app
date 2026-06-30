@@ -444,9 +444,13 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-        <span className="rounded bg-slate-900/70 px-1.5 py-0.5 text-slate-500">UTC</span>
-        <span className="min-w-0 flex-1">· 伦敦金当日分时（新浪国际期货，UTC时间）+ 人民币理论金价（按当前汇率换算），右端追加实时点</span>
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
+        {/* 说明整行（UTC 徽章内联在文字前），leading-relaxed 正常折行，
+            不与高低数值争抢同一 flex 行 → 避免中文被挤成一字一行 */}
+        <p className="basis-full leading-relaxed">
+          <span className="mr-1.5 rounded bg-slate-900/70 px-1.5 py-0.5 text-slate-500">UTC</span>
+          · 伦敦金当日分时（新浪国际期货，UTC时间）+ 人民币理论金价（按当前汇率换算），右端追加实时点
+        </p>
         {xauUsd?.dayHigh != null && xauUsd.dayLow != null && (
           <span
             className="shrink-0 tabular-nums text-slate-400"

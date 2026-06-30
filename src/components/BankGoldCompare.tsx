@@ -16,16 +16,11 @@ export function BankGoldCompare({
   realCount: number;
   total: number;
 }) {
-  // 仅展示：标的、数据源、价格、刷新时间。按买入价升序（无价排末尾）。
+  // 仅展示：标的、数据源、价格、刷新时间。按 BANK_GOLD_PRODUCTS 数组顺序（用户指定，不再价格排序）。
   const rows = BANK_GOLD_PRODUCTS.map((product) => {
     const q = quotes.get(product.instrumentId);
     const price = q?.ask ?? q?.price; // 你买入价
     return { product, q, price };
-  }).sort((a, b) => {
-    if (a.price == null && b.price == null) return 0;
-    if (a.price == null) return 1;
-    if (b.price == null) return -1;
-    return a.price - b.price;
   });
 
   return (

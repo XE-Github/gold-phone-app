@@ -10,9 +10,19 @@ import {
   QUOTE_METAS,
   changeView,
   changeColorClass,
+  currencySymbolForId,
   fmtPrice,
+  fmtTime,
   freshnessBadge,
 } from "@/lib/display";
+
+// 国际锚价 + 国内基准网格（2×2）。label 用本地文案（如 AU9999·SGE），digits 按标的精度。
+const GRID = [
+  { id: "xau-usd", label: "伦敦金", digits: 2 },
+  { id: "usd-cny", label: "美元汇率", digits: 4 },
+  { id: "sge-au9999", label: "AU9999·SGE", digits: 2 },
+  { id: "gold-etf-518880", label: "518880 ETF", digits: 2 },
+] as const;
 
 export function HeroPrice({
   quotes,
@@ -23,9 +33,9 @@ export function HeroPrice({
 }) {
   const hero = QUOTE_METAS[0]; // 人民币理论金价 xau-cny
   const heroQuote = quotes.get(hero.instrumentId);
-  // 涨跌口径与主程序一致：xau-cny 自身无真实昨收，涨跌幅借用伦敦金(xau-usd)。
-  const xauUsd = quotes.get("xau-usd");
-  const heroChange = changeView(xauUsd);
+  // 涨跌取 xau-cny 自身：涨跌额已在 computed.ts 按汇率换算成人民币（带 ¥），
+  // 涨跌幅复用伦敦金（换算后比值不变，数学精确）。与上方 ¥ 主价单位一致。
+  const heroChange = changeView(heroQuote, "¥");
 
   const timeStr = serverTime
     ? new Date(serverTime).toLocaleTimeString("zh-CN", {
@@ -65,31 +75,36 @@ export function HeroPrice({
         更新于 {timeStr} · {hero.hint}
       </p>
 
-      {/* 国际锚价 + 汇率：2 列网格，子卡比外壳小一级（rounded-xl） */}
+      {/* 国际锚价 + 国内基准：2 列网格 4 张卡（2×2），子卡比外壳小一级（rounded-xl）。
+          每卡：名称 + 时效徽章 / 实时价（带计价符号）/ 当日涨跌额(带¥/$)+涨跌幅 / 刷新时间 */}
       <div className="mt-4 grid grid-cols-2 gap-2.5">
-        {QUOTE_METAS.slice(1).map((meta) => {
-          const q = quotes.get(meta.instrumentId);
-          const cv = changeView(q);
+        {GRID.map((item) => {
+          const q = quotes.get(item.id);
+          const symbol = currencySymbolForId(item.id);
+          const cv = changeView(q, symbol);
           const fresh = freshnessBadge(q?.source);
           return (
             <div
-              key={meta.instrumentId}
+              key={item.id}
               className="min-w-0 rounded-xl border border-white/5 bg-slate-900/40 p-3"
             >
               <div className="flex items-center justify-between gap-1.5">
-                <span className="truncate text-[11px] text-slate-400">{meta.shortName}</span>
+                <span className="truncate text-[11px] text-slate-400">{item.label}</span>
                 <span className={`shrink-0 text-[11px] ${fresh.cls}`}>{fresh.label}</span>
               </div>
               <div className="mt-1 truncate text-xl font-semibold tabular-nums text-white">
-                {q ? fmtPrice(q.price, meta.instrumentId === "usd-cny" ? 4 : 2) : "--"}
+                {q ? `${symbol}${fmtPrice(q.price, item.digits)}` : "--"}
               </div>
               {cv ? (
-                <div className={`mt-0.5 text-[11px] tabular-nums ${changeColorClass(cv.up)}`}>
+                <div className={`mt-0.5 truncate text-[11px] tabular-nums ${changeColorClass(cv.up)}`}>
                   {cv.text}
                 </div>
               ) : (
                 <div className="mt-0.5 text-[11px] text-slate-600">涨跌暂无</div>
               )}
+              <div className="mt-0.5 text-[10px] tabular-nums text-slate-600">
+                {q ? fmtTime(q.timestamp) : "--:--:--"}
+              </div>
             </div>
           );
         })}

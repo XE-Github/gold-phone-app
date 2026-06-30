@@ -36,6 +36,14 @@ export function buildComputedQuotes(byId: Map<string, Quote>): Quote[] {
     if (xauUsd.dayLow != null) {
       quote.dayLow = Math.round(((xauUsd.dayLow * usdCny.price) / TROY_OUNCE_GRAMS) * 100) / 100;
     }
+    // 人民币涨跌额 = 伦敦金美元涨跌 × 汇率 ÷ 31.1035（按实时汇率换算的理论涨跌，
+    // 非交易所成交涨跌；source 含"自动计算"已触发"理论值"徽章表达这点）。
+    // 仅伦敦金有真实 change 时换算（Gold-API 兜底无 change → 跳过 → 前端显示"涨跌数据暂无"）。
+    if (xauUsd.change != null && Number.isFinite(xauUsd.change)) {
+      quote.change =
+        Math.round(((xauUsd.change * usdCny.price) / TROY_OUNCE_GRAMS) * 100) / 100;
+    }
+    // 涨跌幅复用伦敦金的：换算前后分子分母同乘 usdCny/31.1035，比值不变，数学精确。
     if (xauUsd.changePercent != null) quote.changePercent = xauUsd.changePercent;
     out.push(quote);
   }

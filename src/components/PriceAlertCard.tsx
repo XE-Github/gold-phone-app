@@ -11,6 +11,7 @@ export function PriceAlertCard({
   rules,
   hydrated,
   priceById,
+  counts,
   onAdd,
   onRemove,
   onToggle,
@@ -19,6 +20,7 @@ export function PriceAlertCard({
   rules: AlertRule[];
   hydrated: boolean;
   priceById: Map<string, number>;
+  counts: Record<string, number>; // 各规则今日触发次数（按穿越累计，跨天归零）
   onAdd: (rule: Omit<AlertRule, "id">) => void;
   onRemove: (id: string) => void;
   onToggle: (id: string) => void;
@@ -27,7 +29,6 @@ export function PriceAlertCard({
   const [instrumentId, setInstrumentId] = useState("xau-cny");
   const [direction, setDirection] = useState<AlertDirection>("above");
   const [thresholdStr, setThresholdStr] = useState("");
-  const [sound, setSound] = useState(true);
   const [error, setError] = useState("");
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("unsupported");
   const [native, setNative] = useState(false);
@@ -63,7 +64,8 @@ export function PriceAlertCard({
       return;
     }
     setError("");
-    onAdd({ instrumentId, direction, threshold, enabled: true, sound });
+    // sound 恒 true：App 默认通知时出声，不再由用户勾选
+    onAdd({ instrumentId, direction, threshold, enabled: true, sound: true });
     setThresholdStr("");
     void onRequestPermission();
   }
@@ -72,13 +74,16 @@ export function PriceAlertCard({
     <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-white">价格提醒</h2>
-        <button
-          onClick={enableNotify}
-          disabled={perm === "granted" || perm === "unsupported"}
-          className={`min-h-9 shrink-0 rounded-lg px-3 text-[11px] font-medium disabled:opacity-60 ${notifyBtn.cls}`}
-        >
-          {notifyBtn.text}
-        </button>
+        {/* 已授权（App 默认开启）不显示按钮；仅 denied/default/unsupported 时给用户操作入口 */}
+        {perm !== "granted" && (
+          <button
+            onClick={enableNotify}
+            disabled={perm === "unsupported"}
+            className={`min-h-9 shrink-0 rounded-lg px-3 text-[11px] font-medium disabled:opacity-60 ${notifyBtn.cls}`}
+          >
+            {notifyBtn.text}
+          </button>
+        )}
       </div>
 
       {/* 原生壳的「已解决 denied 死结」说明，仅装机时显示 */}
@@ -132,43 +137,11 @@ export function PriceAlertCard({
             添加
           </button>
         </div>
-        <label className="flex items-center gap-2 text-[11px] text-slate-400">
-          <input
-            type="checkbox"
-            checked={sound}
-            onChange={(e) => setSound(e.target.checked)}
-            className="h-4 w-4 accent-amber-500"
-          />
-          触发时播放提示音（需先与页面交互一次浏览器才允许出声）
-        </label>
-
-        {/* 被拒绝时给可操作步骤：denied 后浏览器不再弹请求框，必须手动到站点设置改回（仅 Web） */}
-        {!native && perm === "denied" && (
-          <div className="rounded-xl border border-rose-400/20 bg-rose-500/[0.08] p-2.5 text-[11px] leading-relaxed text-rose-100/90">
-            <p className="font-semibold text-rose-200">通知已被浏览器屏蔽，按钮无法再弹出请求框</p>
-            <p className="mt-1 text-rose-100/80">
-              这是浏览器记住了本站点的「拒绝」，需手动改回：点地址栏左侧 🔒/ⓘ →「通知」→ 改为「允许」，
-              再回来刷新页面。（手机系统的浏览器通知总开关也要开着）
-            </p>
-          </div>
-        )}
-
-        {/* 提示文案：原生壳与 Web 分流（原生无浏览器/添加主屏概念） */}
-        {native ? (
-          <p className="text-[11px] leading-relaxed text-slate-500">
-            ⚠️ 提醒在 App 打开/前台时监控；首次需点上方「开启系统通知」并在系统弹窗允许。
-            后台被系统杀死后会停止监控，可在系统设置里给本 App「免后台限制/自启动」缓解。
-          </p>
-        ) : (
-          <p className="text-[11px] leading-relaxed text-slate-500">
-            ⚠️ 系统通知需先点上方「开启系统通知」并允许。手机上仅在本页面打开时监控；
-            若收不到弹窗，请到手机「浏览器/系统通知设置」确认已允许，部分浏览器需先「添加到主屏幕」。
-          </p>
-        )}
         {error && <p className="text-xs text-rose-400">{error}</p>}
       </div>
 
-      {/* 规则列表：子卡 rounded-xl，内联按钮 min-h-9(36px) 且间距 ≥8px */}
+      {/* 规则列表：子卡纵向堆叠（信息行 / 元信息行 / 操作行），避免按钮挤掉阈值。
+          操作按钮独占整行 → 升 min-h-11(44px) 守触摸目标。 */}
       <div className="mt-4 space-y-2">
         {!hydrated ? (
           <p className="text-sm text-slate-500">加载本地提醒规则…</p>
@@ -179,26 +152,37 @@ export function PriceAlertCard({
         ) : (
           rules.map((rule) => {
             const meta = metaFor(rule.instrumentId);
+            const todayCount = counts[rule.id] ?? 0;
             return (
               <div
                 key={rule.id}
-                className="flex items-center justify-between gap-2 rounded-xl border border-white/5 bg-slate-900/40 p-3"
+                className="flex flex-col gap-2 rounded-xl border border-white/5 bg-slate-900/40 p-3"
               >
-                <div className="min-w-0">
-                  <div className="truncate text-sm text-white">
-                    {meta?.shortName ?? rule.instrumentId}{" "}
-                    <span className={rule.direction === "above" ? "text-rose-400" : "text-emerald-400"}>
+                {/* 信息行：标的名(可截断) + 阈值(完整不截断) + 今日计数徽章 */}
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1 text-sm text-white">
+                    <span className="align-middle">{meta?.shortName ?? rule.instrumentId}</span>{" "}
+                    <span
+                      className={`whitespace-nowrap align-middle ${
+                        rule.direction === "above" ? "text-rose-400" : "text-emerald-400"
+                      }`}
+                    >
                       {rule.direction === "above" ? "≥" : "≤"} {fmtPrice(rule.threshold)}
                     </span>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-slate-500">
-                    {rule.sound ? "🔔 有声" : "🔕 静音"} · {meta?.unit}
-                  </div>
+                  {todayCount > 0 && (
+                    <span className="shrink-0 rounded-full bg-slate-700/50 px-2 py-0.5 text-[11px] tabular-nums text-slate-300">
+                      今日 {todayCount} 次
+                    </span>
+                  )}
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                {/* 元信息行 */}
+                <div className="text-[11px] text-slate-500">🔔 有声 · {meta?.unit}</div>
+                {/* 操作行：独占整行右对齐，按钮 ≥44px 触摸目标 */}
+                <div className="flex justify-end gap-2">
                   <button
                     onClick={() => onToggle(rule.id)}
-                    className={`min-h-9 rounded-lg px-3 text-[11px] font-medium ${
+                    className={`min-h-11 rounded-lg px-4 text-[11px] font-medium ${
                       rule.enabled
                         ? "bg-emerald-500/15 text-emerald-300"
                         : "bg-slate-700/40 text-slate-400"
@@ -208,7 +192,7 @@ export function PriceAlertCard({
                   </button>
                   <button
                     onClick={() => onRemove(rule.id)}
-                    className="min-h-9 rounded-lg bg-rose-500/10 px-3 text-[11px] font-medium text-rose-300"
+                    className="min-h-11 rounded-lg bg-rose-500/10 px-4 text-[11px] font-medium text-rose-300"
                     aria-label="删除规则"
                   >
                     删除

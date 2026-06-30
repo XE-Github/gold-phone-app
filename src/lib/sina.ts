@@ -11,8 +11,8 @@
 import iconv from "iconv-lite";
 import type { Quote } from "./types";
 
-// 手机看板只需这几个标的（伦敦金 + 汇率 + SGE 现货 + 沪金主力）
-const SINA_SYMBOLS = ["hf_XAU", "hf_XAG", "USDCNY", "gds_AU9999", "gds_AUTD", "nf_AU0"];
+// 手机看板只需这几个标的（伦敦金 + 汇率 + SGE 现货 + 沪金主力 + 518880 黄金ETF）
+const SINA_SYMBOLS = ["hf_XAU", "hf_XAG", "USDCNY", "gds_AU9999", "gds_AUTD", "nf_AU0", "sh518880"];
 
 const SINA_TO_INSTRUMENT: Record<string, string> = {
   hf_XAU: "xau-usd", // 伦敦金（现货黄金）
@@ -21,6 +21,7 @@ const SINA_TO_INSTRUMENT: Record<string, string> = {
   gds_AU9999: "sge-au9999", // Au99.99（SGE 现货，秒级真实）
   gds_AUTD: "sge-autd", // Au(T+D)（SGE 延期）
   nf_AU0: "shfe-au-main", // 沪金主力（SHFE 期货）
+  sh518880: "gold-etf-518880", // 华安黄金ETF（沪市，元/份）
 };
 
 function toNumber(value: string | undefined): number | null {
@@ -124,11 +125,35 @@ function parseSinaSgeSpot(fields: string[]): Parsed | null {
   };
 }
 
+// sh/sz 沪深 A 股/ETF（如 sh518880 华安黄金ETF）。标准股票行布局：
+// idx0=名称 idx1=今开 idx2=昨收(涨跌基准) idx3=最新价 idx4=最高 idx5=最低
+// …中间是买卖五档量价… 倒数三段 idx30=日期(YYYY-MM-DD) idx31=时间(HH:MM:SS) idx32=状态。
+// 字段已用新浪真实接口验证。残缺/非交易时段返回空体由 fetchSinaQuotes 的 !raw 跳过。
+function parseSinaCnStock(fields: string[]): Parsed | null {
+  if (fields.length < 32) return null;
+  const price = toNumber(fields[3]);
+  if (price === null) return null;
+  const previous = toNumber(fields[2]); // 昨收 = 涨跌基准（交给 buildQuote 算 change）
+  const dayHigh = toNumber(fields[4]);
+  const dayLow = toNumber(fields[5]);
+  const date = fields[30] || null;
+  const time = fields[31] || null;
+  return {
+    price,
+    previous,
+    dayHigh,
+    dayLow,
+    timestamp: buildChinaTimestamp(date, time),
+    sourceOverride: "新浪财经·沪市ETF（实时）",
+  };
+}
+
 function dispatch(symbol: string, fields: string[]): Parsed | null {
   if (symbol.startsWith("hf_")) return parseSinaGlobalFuture(fields);
   if (symbol === "USDCNY") return parseSinaFx(fields);
   if (symbol.startsWith("nf_")) return parseSinaCnFuture(fields);
   if (symbol.startsWith("gds_")) return parseSinaSgeSpot(fields);
+  if (symbol.startsWith("sh") || symbol.startsWith("sz")) return parseSinaCnStock(fields);
   return null;
 }
 
