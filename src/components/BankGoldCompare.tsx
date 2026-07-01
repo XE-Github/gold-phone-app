@@ -9,13 +9,25 @@
 
 import type { Quote } from "@/lib/types";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
-import { bankSourceBadge, freshnessBadge, fmtPrice, fmtTime } from "@/lib/display";
+import { bankSourceBadge, freshnessBadge, fmtPrice, fmtTime, staleState } from "@/lib/display";
+
+// 积存金流「卡住/出错」阈值：>120s（积存金正常 3s 一帧，比行情宽，且银行牌价夜间本就稀疏）。
+const BANK_STALE_MS = 120_000;
 
 export function BankGoldCompare({
   quotes,
+  updatedAt,
+  error,
+  now,
 }: {
   quotes: Map<string, Quote>;
+  // 区段级时效诚实条（问题 3）。全可选→旧调用/首帧前不显条，行为与从前一致。
+  updatedAt?: number;
+  error?: string;
+  now?: number | null;
 }) {
+  const stale =
+    now != null ? staleState(updatedAt, error, now, BANK_STALE_MS) : { stale: false as const };
   // 仅展示：标的、数据源、价格、刷新时间。按 BANK_GOLD_PRODUCTS 数组顺序（用户指定，不再价格排序）。
   const rows = BANK_GOLD_PRODUCTS.map((product) => {
     const q = quotes.get(product.instrumentId);
@@ -26,6 +38,22 @@ export function BankGoldCompare({
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
       <h2 className="text-base font-semibold text-white">积存金</h2>
+
+      {/* 区段级诚实条（问题 3）：整条积存金流卡住/失败时明说，不拿旧牌价假装最新。 */}
+      {stale.stale && (
+        <div
+          role="status"
+          className={`mt-2 rounded-lg border px-2.5 py-1.5 text-[13px] leading-snug ${
+            stale.reason === "error"
+              ? "border-rose-400/25 bg-rose-500/[0.08] text-rose-200/90"
+              : "border-amber-400/25 bg-amber-500/[0.08] text-amber-200/90"
+          }`}
+        >
+          {stale.reason === "error"
+            ? "更新失败，正在重试（下方为上次牌价）"
+            : `牌价可能过时（已 ${stale.ageSec ?? "?"}s 未更新）`}
+        </div>
+      )}
 
       <div className="mt-3 space-y-2">
         {rows.map(({ product, q, price }) => {

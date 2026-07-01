@@ -9,6 +9,8 @@ import {
   requestNotificationPermission as requestPerm,
   showSystemNotification,
 } from "./notify";
+import { metaFor } from "./display";
+import { useAppForeground } from "./useAppForeground";
 
 const STORAGE_KEY = "gold-phone-price-alerts-v1";
 // 今日触发计数（与规则存储解耦）。带 day 标记，跨自然日丢弃归零。
@@ -115,6 +117,21 @@ export function usePriceAlerts(priceById: Map<string, number>) {
   // 记录每条规则当前是否处于"已触发"锁定态（价格离开阈值才解锁）
   const lockedRef = useRef<Record<string, boolean>>({});
 
+  // 最新价 live ref：让 evaluateNow / 回前台补检查能读到当前价，而不必把 priceById 塞进
+  // evaluateNow 的依赖（否则每次价格变动都重建回调、useAppForeground 反复重绑）。同 back-button 手法。
+  const priceByIdRef = useRef(priceById);
+  useEffect(() => {
+    priceByIdRef.current = priceById;
+  });
+
+  // evaluateNow 的 live ref：useAppForeground 的 onResume 需在 evaluateNow 定义【之前】拿到
+  // foregroundRef，故用 ref 转发（回前台时调最新 evaluateNow）。同 useAndroidBackButton 的 decideRef。
+  const evaluateNowRef = useRef<(justResumed: boolean) => void>(() => {});
+
+  // 前台状态 + 回前台补检查（问题 2/4/5）。先于 evaluateNow 声明，供其读 foregroundRef.current
+  // 做系统通知门（读 .current，不入依赖）。onResume 经 evaluateNowRef 转发到最新闭包。
+  const { foregroundRef } = useAppForeground(() => evaluateNowRef.current(true));
+
   // 首次从 localStorage 读取（避免 hydration 不一致）。
   // queueMicrotask 把 setState 推迟出 effect 同步体，满足 react-hooks/set-state-in-effect。
   useEffect(() => {
@@ -137,40 +154,74 @@ export function usePriceAlerts(priceById: Map<string, number>) {
     }
   }, [rules, hydrated]);
 
-  // 价格变化时评估规则
+  // 规则评估（单一事实源）。价格变化时调，回前台时也调（justResumed=true）。
+  // 读价走 priceByIdRef（最新值），故依赖只 [rules, hydrated]，不含 priceById——避免每次
+  // 价格变动重建回调 → useAppForeground 反复重绑（同 useAndroidBackButton 的 ref-defer 手法）。
+  //
+  // justResumed：从后台回到前台那一刻的补检查。安卓后台会挂起整个进程（Node 定时器 + WebView JS
+  // 全冻结），冻结期间根本不评估规则；回前台用最新价复评一次，把冻结期间发生、且【此刻仍成立】
+  // 的穿越补弹系统通知出来。⚠️ 诚实边界：冻结期间瞬穿又回落的价格无法补（那段时间没采数），
+  // 这是无常驻后台服务方案的根本上限，不在 UI 谎称"后台实时"。
+  const evaluateNow = useCallback(
+    (justResumed: boolean) => {
+      if (!hydrated) return;
+      const prices = priceByIdRef.current;
+      for (const rule of rules) {
+        if (!rule.enabled) {
+          lockedRef.current[rule.id] = false;
+          continue;
+        }
+        const price = prices.get(rule.instrumentId);
+        if (price === undefined || !Number.isFinite(price) || price <= 0) continue;
+
+        const meets =
+          rule.direction === "above" ? price >= rule.threshold : price <= rule.threshold;
+
+        if (meets && !lockedRef.current[rule.id]) {
+          lockedRef.current[rule.id] = true; // 锁定，避免重复触发
+          setFired({ rule, price, at: Date.now() });
+          // 今日触发次数 +1（按穿越累计，落盘并带当天 day）
+          setCounts((prev) => {
+            const next = { ...prev, [rule.id]: (prev[rule.id] ?? 0) + 1 };
+            persistCounts(next);
+            return next;
+          });
+          // 问题 2：前台不弹系统通知（应用内 AlertToast 已够，弹系统通知是重复打扰）；
+          //         仅后台/关闭时，或回前台补检查(justResumed)时才弹系统通知。
+          if (!foregroundRef.current || justResumed) {
+            // 问题 1：标题带具体标的+方向+阈值（例：人民币理论金价 跌破 875.00），不再笼统"黄金价格提醒"。
+            const label =
+              metaFor(rule.instrumentId)?.shortName ??
+              metaFor(rule.instrumentId)?.name ??
+              rule.instrumentId;
+            const dirWord = rule.direction === "above" ? "突破" : "跌破";
+            const unit = metaFor(rule.instrumentId)?.unit ?? "";
+            const title = `${label} ${dirWord} ${rule.threshold.toFixed(2)}`;
+            const body = `当前 ${price.toFixed(2)} ${unit}`.trim();
+            void showSystemNotification(title, body);
+          }
+          playBeep(); // 一律出声（前台也响，作为应用内到价的即时反馈）
+        } else if (!meets && lockedRef.current[rule.id]) {
+          lockedRef.current[rule.id] = false; // 离开阈值，复位
+        }
+      }
+    },
+    // foregroundRef 是 useAppForeground 返回的稳定 ref（跨 render 不变），列入仅为满足
+    // exhaustive-deps，不会导致回调重建。
+    [rules, hydrated, foregroundRef],
+  );
+
+  // evaluateNowRef 每次 render 刷新为最新 evaluateNow（供 onResume 转发调用）。
+  useEffect(() => {
+    evaluateNowRef.current = evaluateNow;
+  });
+
+  // 价格变化时评估（前台常态路径）。evaluateNow 稳定（依赖 [rules,hydrated]），
+  // priceById 变动即触发本 effect。queueMicrotask 推迟出同步体，满足 set-state-in-effect。
   useEffect(() => {
     if (!hydrated) return;
-    for (const rule of rules) {
-      if (!rule.enabled) {
-        lockedRef.current[rule.id] = false;
-        continue;
-      }
-      const price = priceById.get(rule.instrumentId);
-      if (price === undefined || !Number.isFinite(price) || price <= 0) continue;
-
-      const meets =
-        rule.direction === "above" ? price >= rule.threshold : price <= rule.threshold;
-
-      if (meets && !lockedRef.current[rule.id]) {
-        lockedRef.current[rule.id] = true; // 锁定，避免重复触发
-        const dir = rule.direction === "above" ? "突破上限" : "跌破下限";
-        setFired({ rule, price, at: Date.now() });
-        // 今日触发次数 +1（按穿越累计，落盘并带当天 day）
-        setCounts((prev) => {
-          const next = { ...prev, [rule.id]: (prev[rule.id] ?? 0) + 1 };
-          persistCounts(next);
-          return next;
-        });
-        void showSystemNotification(
-          "黄金价格提醒",
-          `价格 ${price.toFixed(2)} ${dir} ${rule.threshold.toFixed(2)}`,
-        );
-        playBeep(); // 一律出声（App 默认通知带提示音）
-      } else if (!meets && lockedRef.current[rule.id]) {
-        lockedRef.current[rule.id] = false; // 离开阈值，复位
-      }
-    }
-  }, [priceById, rules, hydrated]);
+    queueMicrotask(() => evaluateNow(false));
+  }, [priceById, evaluateNow, hydrated]);
 
   const addRule = useCallback((rule: Omit<AlertRule, "id">) => {
     const id = `${rule.instrumentId}-${rule.direction}-${rule.threshold}-${Date.now()}`;

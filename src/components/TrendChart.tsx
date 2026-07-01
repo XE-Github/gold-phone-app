@@ -336,7 +336,9 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "真实日高",
+          // title 留空：图内不再压「真实日高」中文字（压在曲线上拥挤），仅在右轴留价格数字标记；
+          // 完整「真实日内 高/低」文字汇总已在图下方。
+          title: "",
         });
       } catch {
         /* ignore */
@@ -350,7 +352,8 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "真实日低",
+          // title 留空（同上日高）：仅留右轴价格数字标记，文字汇总在图下方。
+          title: "",
         });
       } catch {
         /* ignore */
@@ -396,14 +399,8 @@ export function TrendChart({ quotes }: { quotes: Map<string, Quote> }) {
       </div>
 
       <div className="relative mt-2">
-        {/* 轴单位提示 / 悬停 tooltip：叠在画布上的绝对定位标签，保留 11px 硬下限——
-            升档会挤占画布有限空间、遮挡曲线，此处刻意不归并到 13px。 */}
-        <div className="pointer-events-none absolute left-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[11px] font-medium text-sky-300/80">
-          ¥/克
-        </div>
-        <div className="pointer-events-none absolute right-1 top-1 z-10 rounded bg-slate-950/40 px-1.5 py-0.5 text-[11px] font-medium text-amber-300/80">
-          $/盎司
-        </div>
+        {/* 原图内左上「¥/克」右上「$/盎司」轴单位浮层已删：它们压在轴刻度数字上造成重叠拥挤，
+            而单位信息图例里已有（「伦敦金 $/oz」「理论金价 ¥/g」），冗余。删后曲线区更干净。 */}
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-950/60">
             <div className="rounded-xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-300">

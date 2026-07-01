@@ -41,6 +41,13 @@ export type QuotesPayload = {
   serverTime: number;
   bankRealCount?: number; // 积存金真实数据条数（SSE 合并推送/降级轮询带，行情快照不带）
   bankTotal?: number; // 积存金标的总数
+  // ── 每流时效/错误追踪（v0.1.20 加，全可选→向后兼容） ──────────────────────────
+  // 诚实原则：晚上上游不更新 / 抓取失败时，前端据此显示「数据可能过时 / 更新失败」，
+  // 不再拿旧值假装「●实时」。updatedAt=最后一次【成功】抓取的 Date.now()；error=最后错误信息（成功即清）。
+  quotesUpdatedAt?: number; // 行情流最后成功抓取时刻
+  bankUpdatedAt?: number; // 积存金流最后成功抓取时刻
+  quotesError?: string; // 行情流最后错误（有值=最近一轮抓取失败，仍在用旧数据）
+  bankError?: string; // 积存金流最后错误
 };
 
 // 工行/建行官网直连诊断证据（v0.1.11 加宽）。code 是简短结论码（ok/no-data/no-cookie/EPROTO/
@@ -62,6 +69,10 @@ export type BankGoldPayload = {
   total: number;
   warnings: string[];
   serverTime: number;
+  // 时效/错误追踪（v0.1.20 加，可选→向后兼容）：轮询兑底路径 quotesStream 会把这两个
+  // 并进合并后的 QuotesPayload.bankUpdatedAt/bankError，与 SSE 流语义一致。
+  bankUpdatedAt?: number; // 最后成功抓取时刻
+  bankError?: string; // 最后错误（成功即不带）
   // 工行/建行官网直连诊断（见 BankDirectDiag）。仅诊断页消费，主页忽略。
   bankDirectDiag?: { icbc: BankDirectDiag; ccb: BankDirectDiag };
 };

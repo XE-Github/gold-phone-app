@@ -43,6 +43,15 @@ function HomeContent() {
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
+  // 每流时效/错误（问题 3 诚实指示）：随每帧带出，交由两卡的诚实条判定「数据可能过时/更新失败」。
+  const [freshness, setFreshness] = useState<{
+    quotesUpdatedAt?: number;
+    bankUpdatedAt?: number;
+    quotesError?: string;
+    bankError?: string;
+  }>({});
+  // 1s ticking now：让「已 Ns 未更新」随时间增长，即便上游不再推新帧也能翻牌（晚上休市/卡住）。
+  const [now, setNow] = useState<number | null>(null);
   // 底部 Tab：首页 / 我的。静态导出 + Capacitor 壳内子路由打不开，故两个 Tab 是同页
   // client state 切换（不是 Next 路由）；两个面板都常驻挂载、用 hidden 切显示，避免切回
   // 首页时图表/状态重建闪烁，数据订阅也只建一次、切 Tab 不断流。
@@ -99,6 +108,12 @@ function HomeContent() {
           setBankQuotes(toMap(bank));
           setWarnings(data.warnings ?? []);
           setLastUpdate(data.serverTime);
+          setFreshness({
+            quotesUpdatedAt: data.quotesUpdatedAt,
+            bankUpdatedAt: data.bankUpdatedAt,
+            quotesError: data.quotesError,
+            bankError: data.bankError,
+          });
         },
         (s) => {
           if (mounted.current) setStatus(s);
@@ -110,6 +125,14 @@ function HomeContent() {
       mounted.current = false;
       unsubscribe?.();
     };
+  }, []);
+
+  // 1s now 计时器：驱动诚实条的 ageSec 随时间走。queueMicrotask 推迟首帧 set 出同步体
+  // （满足 set-state-in-effect）；interval 回调本就在同步体外。
+  useEffect(() => {
+    queueMicrotask(() => setNow(Date.now()));
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
   }, []);
 
   return (
@@ -135,6 +158,8 @@ function HomeContent() {
             warnings={warnings}
             alerts={alerts}
             priceById={priceById}
+            freshness={freshness}
+            now={now}
           />
         </div>
         <div className={tab === "mine" ? "" : "hidden"}>
@@ -190,6 +215,8 @@ function HomeTab({
   warnings,
   alerts,
   priceById,
+  freshness,
+  now,
 }: {
   quotes: Map<string, Quote>;
   bankQuotes: Map<string, Quote>;
@@ -198,6 +225,13 @@ function HomeTab({
   warnings: string[];
   alerts: ReturnType<typeof usePriceAlerts>;
   priceById: Map<string, number>;
+  freshness: {
+    quotesUpdatedAt?: number;
+    bankUpdatedAt?: number;
+    quotesError?: string;
+    bankError?: string;
+  };
+  now: number | null;
 }) {
   return (
     <>
@@ -219,7 +253,12 @@ function HomeTab({
       )}
 
       <div className="space-y-3">
-        <HeroPrice quotes={quotes} />
+        <HeroPrice
+          quotes={quotes}
+          updatedAt={freshness.quotesUpdatedAt}
+          error={freshness.quotesError}
+          now={now}
+        />
         <PriceAlertCard
           rules={alerts.rules}
           hydrated={alerts.hydrated}
@@ -230,7 +269,12 @@ function HomeTab({
           onToggle={alerts.toggleRule}
           onRequestPermission={alerts.requestNotificationPermission}
         />
-        <BankGoldCompare quotes={bankQuotes} />
+        <BankGoldCompare
+          quotes={bankQuotes}
+          updatedAt={freshness.bankUpdatedAt}
+          error={freshness.bankError}
+          now={now}
+        />
         <TrendChart quotes={quotes} />
       </div>
     </>

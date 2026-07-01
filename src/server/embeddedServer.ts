@@ -27,10 +27,20 @@ export const PORT = 3100;
 export async function buildQuotes(): Promise<QuotesPayload> {
   try {
     const { quotes, warnings } = await getQuotes();
-    return { quotes, warnings, serverTime: Date.now() };
+    const now = Date.now();
+    // 成功：带上 quotesUpdatedAt（=本次抓取时刻），quotesError 不带（=无错误）。
+    // 与 SSE 流(streamManager)语义一致，让 5s 轮询兑底路径也能诚实标注时效。
+    return { quotes, warnings, serverTime: now, quotesUpdatedAt: now };
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
-    return { quotes: [], warnings: [`行情抓取失败：${message}`], serverTime: Date.now() };
+    // 失败：仍返回结构化空数据 + warning，并带 quotesError（前端据此显示「更新失败」）。
+    // 轮询兑底拿不到旧数据，只能返回空 quotes；前端旧值来自上一轮成功帧。
+    return {
+      quotes: [],
+      warnings: [`行情抓取失败：${message}`],
+      serverTime: Date.now(),
+      quotesError: message,
+    };
   }
 }
 
@@ -50,12 +60,14 @@ export async function buildBankGold(): Promise<BankGoldPayload> {
     if (realCount === 0) {
       warnings.push("当前所有银行报价均来自估算兜底，未取到真实直连数据");
     }
+    const now = Date.now();
     return {
       quotes: bankQuotes,
       realCount,
       total: bankQuotes.length,
       warnings,
-      serverTime: Date.now(),
+      serverTime: now,
+      bankUpdatedAt: now, // 成功：本次抓取时刻
       bankDirectDiag,
     };
   } catch (error) {
@@ -66,6 +78,7 @@ export async function buildBankGold(): Promise<BankGoldPayload> {
       total: 0,
       warnings: [`积存金抓取失败：${message}`],
       serverTime: Date.now(),
+      bankError: message, // 失败：前端据此显示「更新失败」
     };
   }
 }

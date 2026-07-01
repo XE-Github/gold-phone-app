@@ -111,17 +111,37 @@ export function isMockMode(): boolean {
   return new URLSearchParams(window.location.search).has("mock");
 }
 
-// 完整假 payload（行情 + 积存金合并，与推流形态一致）
+// 完整假 payload（行情 + 积存金合并，与推流形态一致）。
+//
+// 诚实条预览（问题 3）：默认给两流填「刚成功抓取」的 updatedAt（now），故默认不显诚实条；
+// 仅当 URL 额外带 ?mock=1&stale=age|error 时注入过时/错误，用于 WEB 目测两卡诚实条排版。
+// ⚠️ 全部 mock 门内（isMockMode 短路才调本函数），绝不进真机/生产。
 export function mockPayload(): QuotesPayload {
   const banks = bankQuotes();
   const realCount = banks.filter(
     (q) => q.source.includes("官网") || q.source.includes("京东积存金") || q.source.includes("汇喵"),
   ).length;
+
+  // 预览用 now：mock 无真实时钟，用当前时间当「成功抓取时刻」，让默认态两流都新鲜（不显条）。
+  const now = Date.now();
+  const staleMode =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("stale")
+      : null;
+  // age：把 updatedAt 推到 5 分钟前（远超行情 90s / 积存金 120s 阈值）→ 两卡显「数据可能过时」。
+  // error：置错误串 → 两卡显「更新失败」。默认（无 stale 参数）：updatedAt=now，不显条。
+  const staleAt = staleMode === "age" ? now - 300_000 : now;
+  const errText = staleMode === "error" ? "MOCK 预览：模拟抓取失败" : undefined;
+
   return {
     quotes: [...marketQuotes(), ...banks],
     warnings: ["⚠️ 当前为 MOCK 预览数据（?mock=1），数值为编造、非真实行情，仅供排版预览。"],
     serverTime: 1782826245000, // 固定：2026-06-30 21:30:45 CST
     bankRealCount: realCount,
     bankTotal: banks.length,
+    quotesUpdatedAt: staleAt,
+    bankUpdatedAt: staleAt,
+    quotesError: errText,
+    bankError: errText,
   };
 }

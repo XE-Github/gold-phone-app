@@ -31,6 +31,11 @@ interface StreamState {
   stopTimer: ReturnType<typeof setTimeout> | null;
   refreshing: boolean;
   bankRefreshing: boolean;
+  // 每流时效/错误追踪（诚实原则）：updatedAt=最后一次【成功】抓取时刻；error=最后错误（成功即清）。
+  quotesUpdatedAt: number;
+  bankUpdatedAt: number;
+  quotesError: string | null;
+  bankError: string | null;
 }
 
 const g = globalThis as unknown as { __phoneStream?: StreamState };
@@ -49,6 +54,10 @@ function getState(): StreamState {
       stopTimer: null,
       refreshing: false,
       bankRefreshing: false,
+      quotesUpdatedAt: 0,
+      bankUpdatedAt: 0,
+      quotesError: null,
+      bankError: null,
     };
   }
   return g.__phoneStream;
@@ -63,6 +72,11 @@ function snapshot(state: StreamState): QuotesPayload {
     serverTime: state.serverTime,
     bankRealCount: state.bankRealCount,
     bankTotal: state.bankQuotes.length,
+    // 时效/错误随每帧带出，前端据此诚实标注（数据可能过时 / 更新失败）。
+    quotesUpdatedAt: state.quotesUpdatedAt || undefined,
+    bankUpdatedAt: state.bankUpdatedAt || undefined,
+    quotesError: state.quotesError ?? undefined,
+    bankError: state.bankError ?? undefined,
   };
 }
 
@@ -85,9 +99,14 @@ async function refresh(state: StreamState) {
     state.quotes = quotes;
     state.warnings = warnings;
     state.serverTime = Date.now();
+    state.quotesUpdatedAt = Date.now(); // 成功：记录抓取时刻
+    state.quotesError = null; // 成功：清错误
     broadcast(state);
-  } catch {
-    // 抓取失败保留上一份数据，不推空
+  } catch (error) {
+    // 抓取失败：保留上一份数据（不推空），但【记录错误并广播】——
+    // 否则前端只见旧值 + 绿点，误以为实时（问题 3 的假象）。updatedAt 不推进，让前端 age 继续增长。
+    state.quotesError = error instanceof Error ? error.message : String(error);
+    broadcast(state);
   } finally {
     state.refreshing = false;
   }
@@ -106,9 +125,14 @@ async function refreshBank(state: StreamState) {
     state.bankQuotes = quotes;
     state.bankRealCount = realCount;
     state.serverTime = Date.now();
+    state.bankUpdatedAt = Date.now(); // 成功：记录抓取时刻
+    state.bankError = null; // 成功：清错误
     broadcast(state);
-  } catch {
-    // 抓取失败保留上一份积存金数据，不推空
+  } catch (error) {
+    // 抓取失败：保留上一份积存金数据（不推空），但【记录错误并广播】——同 refresh，
+    // 消除"看着实时其实卡住"的假象。bankUpdatedAt 不推进，让前端 age 继续增长。
+    state.bankError = error instanceof Error ? error.message : String(error);
+    broadcast(state);
   } finally {
     state.bankRefreshing = false;
   }

@@ -50,12 +50,16 @@ export function subscribeQuotes(
         if (quotesRes.status !== "fulfilled") return; // 行情都拿不到就跳过本轮
 
         const base = quotesRes.value;
+        // base 已带行情侧 quotesUpdatedAt/quotesError（buildQuotes 填），随 { ...base } 保留。
         const merged: QuotesPayload = { ...base };
         if (bankRes.status === "fulfilled") {
           const bank = bankRes.value;
           merged.quotes = [...base.quotes, ...(bank.quotes ?? [])];
           merged.bankRealCount = bank.realCount ?? 0;
           merged.bankTotal = bank.total ?? bank.quotes?.length ?? 0;
+          // 积存金侧时效/错误：从 BankGoldPayload 并进合并帧，与 SSE 流语义一致。
+          merged.bankUpdatedAt = bank.bankUpdatedAt;
+          merged.bankError = bank.bankError;
         }
         onUpdate(merged);
       } catch {

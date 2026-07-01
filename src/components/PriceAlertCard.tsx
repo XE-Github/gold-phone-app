@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { AlertDirection, AlertRule } from "@/lib/usePriceAlerts";
 import { ALERT_METAS, metaFor, fmtPrice } from "@/lib/display";
-import { notificationPermission, isNativeNotify } from "@/lib/notify";
 
 const ALERTABLE = ALERT_METAS;
 
@@ -30,32 +29,8 @@ export function PriceAlertCard({
   const [direction, setDirection] = useState<AlertDirection>("above");
   const [thresholdStr, setThresholdStr] = useState("");
   const [error, setError] = useState("");
-  const [perm, setPerm] = useState<NotificationPermission | "unsupported">("unsupported");
-  const [native, setNative] = useState(false);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      setNative(isNativeNotify());
-      setPerm(notificationPermission());
-    });
-  }, []);
 
   const currentPrice = priceById.get(instrumentId);
-
-  async function enableNotify() {
-    const result = await onRequestPermission();
-    setPerm(result as NotificationPermission | "unsupported");
-  }
-
-  // 原生壳与 Web 文案分流：原生不提「浏览器」，denied 也可在系统设置里改回。
-  const notifyBtn = {
-    granted: { text: "🔔 系统通知已开启", cls: "bg-emerald-500/15 text-emerald-300" },
-    denied: native
-      ? { text: "通知被关闭（去系统设置开启）", cls: "bg-rose-500/15 text-rose-300" }
-      : { text: "通知被拒绝（去浏览器设置开启）", cls: "bg-rose-500/15 text-rose-300" },
-    default: { text: "开启系统通知", cls: "bg-amber-500/20 text-amber-200" },
-    unsupported: { text: native ? "通知不可用" : "浏览器不支持通知", cls: "bg-slate-700/40 text-slate-400" },
-  }[perm];
 
   function submit() {
     const threshold = Number(thresholdStr);
@@ -72,19 +47,9 @@ export function PriceAlertCard({
 
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-white">价格提醒</h2>
-        {/* 已授权（App 默认开启）不显示按钮；仅 denied/default/unsupported 时给用户操作入口 */}
-        {perm !== "granted" && (
-          <button
-            onClick={enableNotify}
-            disabled={perm === "unsupported"}
-            className={`min-h-9 shrink-0 rounded-lg px-3 text-[13px] font-medium disabled:opacity-60 ${notifyBtn.cls}`}
-          >
-            {notifyBtn.text}
-          </button>
-        )}
-      </div>
+      {/* 不再单设「开启系统通知」按钮：添加第一条提醒时 submit() 会自动请求系统权限
+          （见下方 void onRequestPermission()），系统弹窗即时出现，无需额外入口。 */}
+      <h2 className="text-base font-semibold text-white">价格提醒</h2>
 
       {/* 新建规则：标的占 2/3、方向占 1/3（min-w-0 防长名撑破横向） */}
       <div className="mt-3 space-y-2.5">
@@ -150,22 +115,24 @@ export function PriceAlertCard({
                 key={rule.id}
                 className="flex items-center gap-2 rounded-xl border border-white/5 bg-slate-900/40 p-3"
               >
-                {/* 左栏：信息行 + 今日计数（可截，占满剩余宽度） */}
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  {/* 信息行：标的名(可截断) + 阈值+单位(完整不截断) */}
-                  <div className="flex items-baseline gap-1.5 text-sm text-white">
-                    <span className="min-w-0 truncate">{meta?.shortName ?? rule.instrumentId}</span>
-                    {/* 阈值是核心数据：whitespace-nowrap + shrink-0 永不截；单位紧跟阈值后 */}
-                    <span
-                      className={`shrink-0 whitespace-nowrap tabular-nums ${
-                        rule.direction === "above" ? "text-rose-400" : "text-emerald-400"
-                      }`}
-                    >
-                      {rule.direction === "above" ? "≥" : "≤"} {fmtPrice(rule.threshold)}
-                      {meta?.unit ? <span className="ml-1 text-slate-500">{meta.unit}</span> : null}
-                    </span>
-                  </div>
-                  {/* 今日计数：信息行下方普通文字（不用胶囊徽章），左对齐 */}
+                {/* 左栏：标的名独占一行 + 阈值行 + 今日计数（占满剩余宽度）。
+                    真机字体比预览宽，名称与阈值挤一行会把「浙商积存金」截成「浙商…」，
+                    故拆两行：标的名整行完整显示，阈值+单位另起一行。 */}
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  {/* 标的名：独占一行，整行宽度足够放下 5~6 字中文名，不再截断 */}
+                  <span className="text-sm font-medium text-white">
+                    {meta?.shortName ?? rule.instrumentId}
+                  </span>
+                  {/* 阈值行：方向符 + 阈值 + 单位（核心数据，whitespace-nowrap 不截） */}
+                  <span
+                    className={`whitespace-nowrap text-sm tabular-nums ${
+                      rule.direction === "above" ? "text-rose-400" : "text-emerald-400"
+                    }`}
+                  >
+                    {rule.direction === "above" ? "≥" : "≤"} {fmtPrice(rule.threshold)}
+                    {meta?.unit ? <span className="ml-1 text-slate-500">{meta.unit}</span> : null}
+                  </span>
+                  {/* 今日计数：普通文字（不用胶囊徽章），左对齐 */}
                   {todayCount > 0 && (
                     <p className="text-[13px] tabular-nums text-slate-400">
                       今日 {todayCount} 次

@@ -16,21 +16,35 @@ import {
   fmtPrice,
   fmtTime,
   metaFor,
+  staleState,
 } from "@/lib/display";
 import { FreshnessBadge } from "./FreshnessBadge";
 
-// 国际锚价 + 国内基准网格（2×2）。label 用本地文案（如 AU9999·SGE），digits 按标的精度。
+// 行情流「卡住/出错」阈值：>90s 无成功抓取即视为过时（正常 2s 一帧，90s 足够宽容夜间稀疏更新）。
+const QUOTES_STALE_MS = 90_000;
+
+// 国际锚价 + 国内基准网格（2×2）。label 用简短本地文案，digits 按标的精度。
+// ⚠️ 真机字体比预览宽：label + 右侧「●实时」徽章同行，名称过长会被 truncate 成「AU999…」「51888…」。
+//    故 SGE/ETF 用最短可辨名（AU9999 / 518880），单位行已显「元/克」「元/份」补充语义。
 const GRID = [
   { id: "xau-usd", label: "伦敦金", digits: 2 },
   { id: "usd-cny", label: "美元汇率", digits: 4 },
-  { id: "sge-au9999", label: "AU9999·SGE", digits: 2 },
-  { id: "gold-etf-518880", label: "518880 ETF", digits: 2 },
+  { id: "sge-au9999", label: "AU9999", digits: 2 },
+  { id: "gold-etf-518880", label: "518880", digits: 2 },
 ] as const;
 
 export function HeroPrice({
   quotes,
+  updatedAt,
+  error,
+  now,
 }: {
   quotes: Map<string, Quote>;
+  // 时效诚实条（问题 3）：updatedAt=行情流最后成功抓取时刻；error=最后错误；now=1s tick。
+  // 全可选→无这些 props 时（旧调用/首帧前）不显条，行为与从前一致。
+  updatedAt?: number;
+  error?: string;
+  now?: number | null;
 }) {
   const hero = QUOTE_METAS[0]; // 人民币理论金价 xau-cny
   const heroQuote = quotes.get(hero.instrumentId);
@@ -38,13 +52,36 @@ export function HeroPrice({
   // 涨跌幅复用伦敦金（换算后比值不变，数学精确）。与上方 ¥ 主价单位一致。
   const heroChange = changeView(heroQuote, "¥");
 
+  // 诚实时效：now 到位才判定（避免 SSR/首帧误报）。stale 时显条、旧值仍在但明确标注，
+  // 绝不把逐条 FreshnessBadge 翻成"实时"绿点（那正是要消除的假象）。
+  const stale = now != null ? staleState(updatedAt, error, now, QUOTES_STALE_MS) : { stale: false as const };
+
+  // 主价卡：原 amber 渐变在真机 OLED 上整片发黄发闷、与下方深色卡割裂。
+  // 改为深色基底 + 极淡暖调（amber 透明度大幅下调）+ 暖调细边框，保留「黄金」暗示但不抢眼。
   return (
-    <section className="rounded-2xl border border-amber-400/20 bg-gradient-to-b from-amber-500/[0.12] to-white/[0.03] p-4 backdrop-blur">
+    <section className="rounded-2xl border border-amber-400/15 bg-gradient-to-b from-amber-500/[0.05] to-white/[0.02] p-4 backdrop-blur">
       <div className="flex items-center justify-between">
         <span className="text-sm text-amber-200/80">{hero.name}</span>
         {/* 时效徽章统一走 FreshnessBadge（诚实）：xau-cny→"理论值"，圆点不呼吸（非实时） */}
         <FreshnessBadge source={heroQuote?.source} variant="pill" />
       </div>
+
+      {/* 诚实条（问题 3）：数据卡住/抓取失败时明说，不拿旧值假装实时。
+          error→玫红「更新失败」；仅超龄→琥珀「数据可能过时（已 Ns 未更新）」。 */}
+      {stale.stale && (
+        <div
+          role="status"
+          className={`mt-2 rounded-lg border px-2.5 py-1.5 text-[13px] leading-snug ${
+            stale.reason === "error"
+              ? "border-rose-400/25 bg-rose-500/[0.08] text-rose-200/90"
+              : "border-amber-400/25 bg-amber-500/[0.08] text-amber-200/90"
+          }`}
+        >
+          {stale.reason === "error"
+            ? "更新失败，正在重试（下方为上次数据）"
+            : `数据可能过时（已 ${stale.ageSec ?? "?"}s 未更新）`}
+        </div>
+      )}
 
       <div className="mt-2 flex items-end gap-2">
         <span className="text-[28px] font-bold tabular-nums tracking-tight text-white">

@@ -187,3 +187,24 @@ export function isBankReal(source?: string): boolean {
     source.includes("汇喵")
   );
 }
+
+// ── 流级时效判定（诚实原则，纯函数，单一事实源） ──────────────────────────────────
+// 依据「最后成功抓取时刻」与「最后错误」判断整条流是否已过时/出错——回答「这条流是不是卡住了」，
+// 与逐条 quote 基于 source 的 freshnessBadge 互补（后者答「这条数据是实时/理论/估算」）。
+// 有 error → reason:"error"（最近一轮抓取真失败，仍显旧值）；
+// 无 error 但超龄 → reason:"age"（晚上上游不更新/休市，非报错，但确实旧了）。
+// now 由调用方传入（组件里每秒 tick），使 ageSec 随时间增长、即便无新帧也能翻牌。
+export type StaleState = { stale: boolean; reason?: "age" | "error"; ageSec?: number };
+export function staleState(
+  updatedAt: number | undefined,
+  error: string | undefined,
+  now: number,
+  thresholdMs: number,
+): StaleState {
+  if (error) return { stale: true, reason: "error" };
+  if (!updatedAt) return { stale: false }; // 尚无成功抓取记录（首帧前）→ 不谎报过时
+  const ageMs = now - updatedAt;
+  const ageSec = Math.max(0, Math.round(ageMs / 1000));
+  if (ageMs > thresholdMs) return { stale: true, reason: "age", ageSec };
+  return { stale: false, ageSec };
+}
