@@ -170,7 +170,7 @@ function parseSinaSgeSpot(fields: string[]): Parsed | null {
     dayHigh,
     dayLow,
     timestamp: buildChinaTimestamp(date, time),
-    sourceOverride: "新浪财经·SGE现货（实时·真实）",
+    sourceOverride: "新浪财经·SGE现货（近实时·真实）",
     ...exchangeMarketStatus("sge"),
   };
 }
@@ -213,11 +213,18 @@ function dispatch(symbol: string, fields: string[]): Parsed | null {
 
 function buildQuote(symbol: string, parsed: Parsed): Quote {
   const instrumentId = SINA_TO_INSTRUMENT[symbol];
+  const source = parsed.sourceOverride ?? (symbol === "hf_XAU"
+    ? "新浪财经·伦敦金（近实时）"
+    : symbol === "hf_XAG"
+      ? "新浪财经·伦敦银（近实时）"
+      : symbol === "USDCNY"
+        ? "新浪财经·美元汇率（近实时）"
+        : "新浪财经（近实时）");
   const quote: Quote = {
     instrumentId,
     price: parsed.price,
     timestamp: parsed.timestamp,
-    source: parsed.sourceOverride ?? "新浪财经（实时）",
+    source,
   };
   if (parsed.previous !== undefined && parsed.previous !== null && parsed.previous !== 0) {
     const change = parsed.price - parsed.previous;

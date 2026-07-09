@@ -153,10 +153,28 @@ export type FreshnessContext = {
   stale?: StaleState;
   marketStatus?: Quote["marketStatus"];
   marketStatusText?: string;
+  quoteTimestamp?: string;
+  now?: number | null;
 };
 
+function quoteAgeSec(timestamp: string | undefined, now: number | null | undefined): number | null {
+  if (!timestamp || now == null) return null;
+  const t = new Date(timestamp).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.round((now - t) / 1000));
+}
+
+function quoteDelayThresholdMs(source: string, marketStatus?: Quote["marketStatus"]): number | null {
+  if (marketStatus === "closed") return null;
+  if (source.includes("Gold-API") || source.includes("伦敦金") || source.includes("XAU")) return 90_000;
+  if (source.includes("USDCNY") || source.includes("汇率") || source.includes("美元")) return 120_000;
+  if (source.includes("SGE") || source.includes("AU9999") || source.includes("Au99.99")) return 90_000;
+  if (source.includes("518880") || source.includes("ETF")) return 30_000;
+  return null;
+}
+
 export function freshnessBadge(source?: string, context: FreshnessContext = {}): Freshness {
-  const { stale, marketStatus, marketStatusText } = context;
+  const { stale, marketStatus, marketStatusText, quoteTimestamp, now } = context;
   if (stale?.stale && stale.reason === "error") {
     return { label: "更新失败", cls: "text-rose-300", dot: "bg-rose-400", live: false };
   }
@@ -177,6 +195,11 @@ export function freshnessBadge(source?: string, context: FreshnessContext = {}):
   }
 
   const s = source ?? "";
+  const threshold = quoteDelayThresholdMs(s, marketStatus);
+  const ageSec = quoteAgeSec(quoteTimestamp, now);
+  if (threshold != null && ageSec != null && ageSec * 1000 > threshold) {
+    return { label: "源头延迟", cls: "text-amber-300", dot: "bg-amber-400", live: false };
+  }
   if (s.includes("自动计算") || s.includes("理论"))
     return { label: "理论值", cls: "text-amber-300", dot: "bg-amber-400", live: false };
   if (s.includes("估算"))

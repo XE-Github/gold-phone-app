@@ -66,7 +66,13 @@ export function HeroPrice({
         <FreshnessBadge
           source={heroQuote?.source}
           variant="pill"
-          context={{ stale, marketStatus: heroQuote?.marketStatus, marketStatusText: heroQuote?.marketStatusText }}
+          context={{
+            stale,
+            marketStatus: heroQuote?.marketStatus,
+            marketStatusText: heroQuote?.marketStatusText,
+            quoteTimestamp: heroQuote?.timestamp,
+            now,
+          }}
         />
       </div>
 
@@ -121,7 +127,13 @@ export function HeroPrice({
                 <FreshnessBadge
                   source={q?.source}
                   variant="inline"
-                  context={{ stale, marketStatus: q?.marketStatus, marketStatusText: q?.marketStatusText }}
+                  context={{
+                    stale,
+                    marketStatus: q?.marketStatus,
+                    marketStatusText: q?.marketStatusText,
+                    quoteTimestamp: q?.timestamp,
+                    now,
+                  }}
                 />
               </div>
               {/* 核心：价格/汇率绝不截断——whitespace-nowrap 护不截，text-lg 在 ~179px 列宽放得下。
@@ -142,6 +154,9 @@ export function HeroPrice({
               <div className="mt-0.5 text-[13px] tabular-nums text-slate-600">
                 {q ? fmtTime(q.timestamp) : "--:--:--"}
               </div>
+              {q?.source ? (
+                <div className="mt-0.5 truncate text-[11px] text-slate-600">{q.source}</div>
+              ) : null}
             </div>
           );
         })}
