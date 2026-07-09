@@ -101,6 +101,7 @@ const releaseFiles = [
   "android/app/src/main/java/com/xegithub/goldphone/GoldForegroundService.java",
   "android/app/src/main/java/com/xegithub/goldphone/BackgroundDataPlugin.java",
   "src/components/BackgroundDataCard.tsx",
+  "src/components/BankGoldCompare.tsx",
   "src/lib/backgroundData.ts",
   "src/lib/usePriceAlerts.ts",
   "src/app/page.tsx",

@@ -85,13 +85,16 @@ export function BankGoldCompare({
                 </span>
               </div>
 
-              {/* 第二行：数据源徽章 + 时间 */}
+              {/* 第二行：数据源类别 + 时间 */}
               <div className="mt-1 flex items-center gap-2">
                 <span className={`shrink-0 text-[13px] ${badge.cls}`}>●{badge.label}</span>
                 {/* 时间固定格式 HH:MM:SS，不截断 */}
                 <span className="shrink-0 whitespace-nowrap text-[13px] tabular-nums text-slate-600">
                   {fmtTime(q?.timestamp)}
                 </span>
+              </div>
+              <div className="mt-1 truncate text-[12px] leading-snug text-slate-500">
+                数据源：{q?.source ?? "暂无"}
               </div>
             </div>
           );
