@@ -142,12 +142,40 @@ export function fmtTime(timestamp?: string): string {
   });
 }
 
-// 行情数据「时效性」徽章：实时 / 近实时 / 延时 / 理论值 / 估算。
-// 诚实原则：只依据 source 子串判定，绝不臆造。
+// 行情数据「时效性」徽章：实时 / 近实时 / 延时 / 理论值 / 估算 / 已收盘 / 过时。
+// 诚实原则：默认只依据 source 子串判定；如果调用方传入流级状态/交易状态，则高优先级覆盖，
+// 避免「区段已过时，但逐条仍绿点实时」的矛盾。
 // live：是否「活的实时类」数据——决定圆点是否呼吸(animate-pulse)。
-//   实时/近实时/最新牌价=true(在动)；理论值/估算/延时/—=false(给"理论值"加呼吸会误导成实时)。
+//   实时/近实时/最新牌价=true(在动)；理论值/估算/延时/过时/收盘=false。
 export type Freshness = { label: string; cls: string; dot: string; live: boolean };
-export function freshnessBadge(source?: string): Freshness {
+
+export type FreshnessContext = {
+  stale?: StaleState;
+  marketStatus?: Quote["marketStatus"];
+  marketStatusText?: string;
+};
+
+export function freshnessBadge(source?: string, context: FreshnessContext = {}): Freshness {
+  const { stale, marketStatus, marketStatusText } = context;
+  if (stale?.stale && stale.reason === "error") {
+    return { label: "更新失败", cls: "text-rose-300", dot: "bg-rose-400", live: false };
+  }
+  if (marketStatus === "closed") {
+    return {
+      label: marketStatusText?.includes("最后价") ? "已收盘" : (marketStatusText ?? "已收盘"),
+      cls: "text-slate-400",
+      dot: "bg-slate-500",
+      live: false,
+    };
+  }
+  if (stale?.stale && stale.reason === "age") {
+    const base = source ?? "";
+    if (base.includes("自动计算") || base.includes("理论")) {
+      return { label: "理论值·过时", cls: "text-amber-300", dot: "bg-amber-400", live: false };
+    }
+    return { label: "可能过时", cls: "text-amber-300", dot: "bg-amber-400", live: false };
+  }
+
   const s = source ?? "";
   if (s.includes("自动计算") || s.includes("理论"))
     return { label: "理论值", cls: "text-amber-300", dot: "bg-amber-400", live: false };

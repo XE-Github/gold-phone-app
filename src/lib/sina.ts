@@ -38,6 +38,52 @@ function buildChinaTimestamp(date: string | null, time: string | null): string {
   return new Date().toISOString();
 }
 
+function chinaNowParts(): { day: number; minutes: number } {
+  const now = new Date();
+  const chinaMs = now.getTime() + 8 * 60 * 60 * 1000;
+  const d = new Date(chinaMs);
+  return {
+    day: d.getUTCDay(),
+    minutes: d.getUTCHours() * 60 + d.getUTCMinutes(),
+  };
+}
+
+function inRange(minutes: number, start: string, end: string): boolean {
+  const [startHour, startMinute] = start.split(":").map(Number);
+  const [endHour, endMinute] = end.split(":").map(Number);
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+  return minutes >= startMinutes && minutes <= endMinutes;
+}
+
+function weekday(day: number): boolean {
+  return day >= 1 && day <= 5;
+}
+
+function exchangeMarketStatus(kind: "sge" | "shfe" | "stock"): Pick<Parsed, "marketStatus" | "marketStatusText"> {
+  const { day, minutes } = chinaNowParts();
+  if (!weekday(day)) return { marketStatus: "closed", marketStatusText: "已收盘·最后价" };
+
+  const stockOpen = inRange(minutes, "09:30", "11:30") || inRange(minutes, "13:00", "15:00");
+  if (kind === "stock") {
+    return stockOpen
+      ? { marketStatus: "open", marketStatusText: "交易中" }
+      : { marketStatus: "closed", marketStatusText: "已收盘·最后价" };
+  }
+
+  const dayOpen =
+    kind === "shfe"
+      ? inRange(minutes, "09:00", "10:15") || inRange(minutes, "10:30", "11:30") || inRange(minutes, "13:30", "15:00")
+      : inRange(minutes, "09:00", "11:30") || inRange(minutes, "13:30", "15:30");
+  const nightOpen =
+    (day >= 1 && day <= 4 && inRange(minutes, "20:00", "23:59")) ||
+    (day >= 2 && day <= 5 && inRange(minutes, "00:00", "02:30"));
+
+  return dayOpen || nightOpen
+    ? { marketStatus: "open", marketStatusText: "交易中" }
+    : { marketStatus: "closed", marketStatusText: "已收盘·最后价" };
+}
+
 type Parsed = {
   price: number;
   previous?: number | null;
@@ -47,6 +93,8 @@ type Parsed = {
   ask?: number | null;
   timestamp: string;
   sourceOverride?: string;
+  marketStatus?: Quote["marketStatus"];
+  marketStatusText?: string;
 };
 
 // hf_ 全球期货/现货（hf_XAU 伦敦金、hf_XAG）。dayHigh=4 / dayLow=5 为交易所真实值。
@@ -100,6 +148,7 @@ function parseSinaCnFuture(fields: string[]): Parsed | null {
     ask,
     timestamp: buildChinaTimestamp(date, time),
     sourceOverride: "新浪财经·SHFE沪金主力（实时·真实交易所价）",
+    ...exchangeMarketStatus("shfe"),
   };
 }
 
@@ -122,6 +171,7 @@ function parseSinaSgeSpot(fields: string[]): Parsed | null {
     dayLow,
     timestamp: buildChinaTimestamp(date, time),
     sourceOverride: "新浪财经·SGE现货（实时·真实）",
+    ...exchangeMarketStatus("sge"),
   };
 }
 
@@ -138,6 +188,8 @@ function parseSinaCnStock(fields: string[]): Parsed | null {
   const dayLow = toNumber(fields[5]);
   const date = fields[30] || null;
   const time = fields[31] || null;
+  const rawStatus = fields[32]?.trim();
+  const status = exchangeMarketStatus("stock");
   return {
     price,
     previous,
@@ -145,6 +197,8 @@ function parseSinaCnStock(fields: string[]): Parsed | null {
     dayLow,
     timestamp: buildChinaTimestamp(date, time),
     sourceOverride: "新浪财经·沪市ETF（实时）",
+    ...status,
+    marketStatusText: rawStatus && rawStatus !== "00" ? `已收盘·${rawStatus}` : status.marketStatusText,
   };
 }
 
@@ -174,6 +228,8 @@ function buildQuote(symbol: string, parsed: Parsed): Quote {
   if (parsed.dayLow !== undefined && parsed.dayLow !== null) quote.dayLow = parsed.dayLow;
   if (parsed.bid !== undefined && parsed.bid !== null) quote.bid = parsed.bid;
   if (parsed.ask !== undefined && parsed.ask !== null) quote.ask = parsed.ask;
+  if (parsed.marketStatus) quote.marketStatus = parsed.marketStatus;
+  if (parsed.marketStatusText) quote.marketStatusText = parsed.marketStatusText;
   return quote;
 }
 

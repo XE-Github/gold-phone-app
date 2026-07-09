@@ -14,6 +14,8 @@ export type Quote = {
   timestamp: string; // 格式不统一：新浪带 +08:00、银行用 toLocaleString("zh-CN")、Gold-API 用 ISO
   source: string; // 载体字段：积存金真实/估算由 source 子串判定
   stale?: boolean;
+  marketStatus?: "open" | "closed" | "unknown"; // 交易所标的可带：开盘/已收盘/未知；未知时不臆造
+  marketStatusText?: string; // 例如“已收盘·最后价”“交易中”等，UI 可直接展示
 };
 
 // 手机看板要展示的行情标的元数据（纯展示用）

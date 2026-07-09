@@ -63,7 +63,11 @@ export function HeroPrice({
       <div className="flex items-center justify-between">
         <span className="text-sm text-amber-200/80">{hero.name}</span>
         {/* 时效徽章统一走 FreshnessBadge（诚实）：xau-cny→"理论值"，圆点不呼吸（非实时） */}
-        <FreshnessBadge source={heroQuote?.source} variant="pill" />
+        <FreshnessBadge
+          source={heroQuote?.source}
+          variant="pill"
+          context={{ stale, marketStatus: heroQuote?.marketStatus, marketStatusText: heroQuote?.marketStatusText }}
+        />
       </div>
 
       {/* 诚实条（问题 3）：数据卡住/抓取失败时明说，不拿旧值假装实时。
@@ -114,7 +118,11 @@ export function HeroPrice({
               <div className="flex items-center justify-between gap-1.5">
                 {/* 名称可截断（非核心数据），徽章不截。徽章统一走 FreshnessBadge（带圆点+按实时性呼吸） */}
                 <span className="truncate text-[13px] text-slate-400">{item.label}</span>
-                <FreshnessBadge source={q?.source} variant="inline" />
+                <FreshnessBadge
+                  source={q?.source}
+                  variant="inline"
+                  context={{ stale, marketStatus: q?.marketStatus, marketStatusText: q?.marketStatusText }}
+                />
               </div>
               {/* 核心：价格/汇率绝不截断——whitespace-nowrap 护不截，text-lg 在 ~179px 列宽放得下。
                   单位（元/克·美元/盎司·元/份）紧跟价格后，辅助档 text-[13px]；汇率无单位则不显。 */}

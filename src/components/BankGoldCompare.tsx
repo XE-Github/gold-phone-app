@@ -58,7 +58,7 @@ export function BankGoldCompare({
       <div className="mt-3 space-y-2">
         {rows.map(({ product, q, price }) => {
           const badge = bankSourceBadge(q?.source); // 数据源（官网直连/京东平台/第三方聚合/估算）
-          const fresh = freshnessBadge(q?.source);  // 时效（最新牌价/估算），圆点按 live 呼吸
+          const fresh = freshnessBadge(q?.source, { stale });  // 时效（最新牌价/估算/过时），圆点按 live 呼吸
           return (
             <div
               key={product.instrumentId}

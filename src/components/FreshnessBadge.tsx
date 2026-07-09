@@ -12,12 +12,14 @@ export function FreshnessBadge({
   source,
   variant = "inline",
   className = "",
+  context,
 }: {
   source?: string;
   variant?: "pill" | "inline";
   className?: string;
+  context?: Parameters<typeof freshnessBadge>[1];
 }) {
-  const fresh = freshnessBadge(source);
+  const fresh = freshnessBadge(source, context);
   const dot = (
     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${fresh.dot} ${fresh.live ? "animate-pulse" : ""}`} />
   );

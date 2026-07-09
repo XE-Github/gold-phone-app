@@ -45,6 +45,8 @@ export function buildComputedQuotes(byId: Map<string, Quote>): Quote[] {
     }
     // 涨跌幅复用伦敦金的：换算前后分子分母同乘 usdCny/31.1035，比值不变，数学精确。
     if (xauUsd.changePercent != null) quote.changePercent = xauUsd.changePercent;
+    if (xauUsd.marketStatus) quote.marketStatus = xauUsd.marketStatus;
+    if (xauUsd.marketStatusText) quote.marketStatusText = xauUsd.marketStatusText;
     out.push(quote);
   }
 

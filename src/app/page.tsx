@@ -9,6 +9,7 @@ import { AlertToast } from "@/components/AlertToast";
 import { BankGoldCompare } from "@/components/BankGoldCompare";
 import { UpdateCard } from "@/components/UpdateCard";
 import { DonateCard } from "@/components/DonateCard";
+import { BackgroundDataCard } from "@/components/BackgroundDataCard";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
 import { useAndroidBackButton, useDoubleBackExit } from "@/lib/useAndroidBackButton";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
@@ -300,6 +301,7 @@ function MineTab({
 
       <div className="space-y-3">
         <UpdateCard />
+        <BackgroundDataCard />
 
         {/* 列表式入口分组 */}
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
