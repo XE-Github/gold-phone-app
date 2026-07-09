@@ -17,18 +17,23 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.List;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -51,6 +56,10 @@ public class GoldForegroundService extends Service {
     private static final int NET_TIMEOUT_MS = 8000;
     private static final double TROY_OUNCE_GRAMS = 31.1035;
     private static final String HUIMIAO_BASE = "https://www.zhengmeili.asia/ec/skill/gateway";
+    private static final String ICBC_GOLD_URL = "https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp";
+    private static final String ICBC_PRODUCT_CODE = "080020000521";
+    private static final String CCB_BASE = "https://gold3.ccb.com";
+    private static final String CCB_REFERER = CCB_BASE + "/chn/home/gold_new/cpjs/index.shtml";
 
     private static volatile boolean running = false;
     private static ScheduledExecutorService executor;
@@ -305,20 +314,77 @@ public class GoldForegroundService extends Service {
     }
 
     private BankResult fetchBankQuotes() throws Exception {
-        JSONArray out = new JSONArray();
-        int success = 0;
-        JSONObject q;
-        q = fetchHuimiaoBank("icbc-acc-gold", "ICBC", "Gold", "工商银行", "工银积存金");
-        if (q != null) { out.put(q); success++; }
-        q = fetchJdBank("czbank-acc-gold", "1961543816", "v2", "浙商银行", "涌金积存金");
-        if (q != null) { out.put(q); success++; }
-        q = fetchJdBank("cmbc-acc-gold", "P005", "v1", "民生银行", "民生积存金");
-        if (q != null) { out.put(q); success++; }
-        q = fetchHuimiaoJdBank("cgb-acc-gold", "广发积存金", "广发银行", "广发积存金");
-        if (q != null) { out.put(q); success++; }
-        q = fetchHuimiaoBank("ccb-acc-gold", "CCB", "Gold", "建设银行", "龙鼎金");
-        if (q != null) { out.put(q); success++; }
-        return new BankResult(out, success);
+        ExecutorService pool = Executors.newFixedThreadPool(5);
+        try {
+            Future<JSONObject>[] futures = new Future[]{
+                pool.submit((Callable<JSONObject>) () -> firstNonNull(fetchIcbcOfficialBank(), fetchHuimiaoBank("icbc-acc-gold", "ICBC", "Gold", "工商银行", "工银积存金"))),
+                pool.submit((Callable<JSONObject>) () -> fetchJdBank("czbank-acc-gold", "1961543816", "v2", "浙商银行", "涌金积存金")),
+                pool.submit((Callable<JSONObject>) () -> fetchJdBank("cmbc-acc-gold", "P005", "v1", "民生银行", "民生积存金")),
+                pool.submit((Callable<JSONObject>) () -> fetchHuimiaoJdBank("cgb-acc-gold", "广发积存金", "广发银行", "广发积存金")),
+                pool.submit((Callable<JSONObject>) () -> firstNonNull(fetchCcbOfficialBank(), fetchHuimiaoBank("ccb-acc-gold", "CCB", "Gold", "建设银行", "龙鼎金"))),
+            };
+            JSONArray out = new JSONArray();
+            int success = 0;
+            for (Future<JSONObject> future : futures) {
+                try {
+                    JSONObject q = future.get();
+                    if (q != null) { out.put(q); success++; }
+                } catch (Exception ignored) {
+                    /* 单家失败不影响其他银行 */
+                }
+            }
+            return new BankResult(out, success);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private JSONObject fetchIcbcOfficialBank() {
+        try {
+            Map<String, String> headers = defaultHeaders(null);
+            headers.put("Accept", "text/html,*/*");
+            JSONObject res = httpGetBytes(ICBC_GOLD_URL, headers);
+            int status = res.optInt("status", 0);
+            if (status < 200 || status >= 300) return null;
+            String html = new String((byte[]) res.get("bytes"), Charset.forName("GBK"));
+            double active = extractHtmlNumber(html, "activeprice_" + ICBC_PRODUCT_CODE);
+            double high = extractHtmlNumber(html, "highprice_" + ICBC_PRODUCT_CODE);
+            double low = extractHtmlNumber(html, "lowprice_" + ICBC_PRODUCT_CODE);
+            if (!Double.isFinite(active) || active <= 0) return null;
+            JSONObject q = bankQuoteBase("icbc-acc-gold", round2(active), "工商银行", "工银积存金", "工商银行官网·积存金实时牌价（Android后台）");
+            q.put("ask", round2(active));
+            if (Double.isFinite(high) && high > 0) q.put("dayHigh", round2(high));
+            if (Double.isFinite(low) && low > 0) q.put("dayLow", round2(low));
+            return q;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONObject fetchCcbOfficialBank() {
+        try {
+            Map<String, String> headers = defaultHeaders(CCB_REFERER);
+            JSONObject session = httpGetBytes(CCB_BASE + "/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=100119", headers);
+            int status = session.optInt("status", 0);
+            if (status < 200 || status >= 300) return null;
+            String cookie = cookieHeader(session.opt("cookies"));
+            if (cookie.length() == 0) return null;
+            headers.put("Cookie", cookie);
+            String raw = httpGet(CCB_BASE + "/tran/WCCMainPlatV5?CCB_IBSVersion=V5&SERVLET_NAME=WCCMainPlatV5&TXCODE=NGJS01", "UTF-8", headers);
+            JSONObject data = new JSONObject(raw.trim());
+            if (!"true".equals(data.optString("SUCCESS"))) return null;
+            double ask = parseDouble(data.optString("Cst_Buy_Prc", ""));
+            double bid = parseDouble(data.optString("Cst_Sell_Prc", ""));
+            if (!Double.isFinite(ask) || ask <= 0) return null;
+            JSONObject q = bankQuoteBase("ccb-acc-gold", round2(ask), "建设银行", "龙鼎金", "建设银行官网·积存金实时牌价（Android后台）");
+            q.put("ask", round2(ask));
+            if (Double.isFinite(bid) && bid > 0) q.put("bid", round2(bid));
+            String t = data.optString("Tms", "");
+            if (t.length() > 0) q.put("timestamp", t);
+            return q;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private JSONObject fetchHuimiaoBank(String id, String bankType, String currencyType, String bankName, String product) {
@@ -529,20 +595,32 @@ public class GoldForegroundService extends Service {
     }
 
     private String httpGet(String url, String charset, Map<String, String> headers) throws Exception {
+        JSONObject res = httpGetBytes(url, headers);
+        int code = res.optInt("status", 0);
+        if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
+        return new String((byte[]) res.get("bytes"), Charset.forName(charset));
+    }
+
+    private JSONObject httpGetBytes(String url, Map<String, String> headers) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(NET_TIMEOUT_MS);
         conn.setReadTimeout(NET_TIMEOUT_MS);
         for (Map.Entry<String, String> h : headers.entrySet()) conn.setRequestProperty(h.getKey(), h.getValue());
         try {
             int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
-            InputStream is = conn.getInputStream();
-            BufferedReader br = new BufferedReader(new InputStreamReader(is, Charset.forName(charset)));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line).append('\n');
-            br.close();
-            return sb.toString();
+            InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            if (is != null) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) >= 0) out.write(buf, 0, n);
+                is.close();
+            }
+            JSONObject res = new JSONObject();
+            res.put("status", code);
+            res.put("bytes", out.toByteArray());
+            res.put("cookies", conn.getHeaderFields().get("Set-Cookie"));
+            return res;
         } finally {
             conn.disconnect();
         }
@@ -624,6 +702,36 @@ public class GoldForegroundService extends Service {
         } catch (Exception e) {
             return Double.NaN;
         }
+    }
+
+    private static double extractHtmlNumber(String html, String id) {
+        try {
+            Pattern p = Pattern.compile("id=\\\"" + Pattern.quote(id) + "\\\"[^>]*>([^<]+)", Pattern.CASE_INSENSITIVE);
+            Matcher m = p.matcher(html);
+            if (!m.find()) return Double.NaN;
+            return parseDouble(m.group(1));
+        } catch (Exception e) {
+            return Double.NaN;
+        }
+    }
+
+    private static String cookieHeader(Object raw) {
+        if (!(raw instanceof List<?>)) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Object o : (List<?>) raw) {
+            if (!(o instanceof String)) continue;
+            String s = (String) o;
+            int end = s.indexOf(';');
+            if (end > 0) s = s.substring(0, end);
+            if (s.length() == 0) continue;
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(s);
+        }
+        return sb.toString();
+    }
+
+    private static JSONObject firstNonNull(JSONObject preferred, JSONObject fallback) {
+        return preferred != null ? preferred : fallback;
     }
 
     private static String chinaTimestamp(String date, String time) {

@@ -21,6 +21,15 @@ import { ConsentGate } from "@/components/ConsentGate";
 
 // 积存金标的 id 集合：SSE 把行情+积存金合并推送，前端按 id 归属拆回两份。
 const BANK_IDS = new Set(BANK_GOLD_PRODUCTS.map((p) => p.instrumentId));
+const BANK_FRESH_MS = 120_000;
+
+function bankSourceRank(source?: string): number {
+  if (!source) return 0;
+  if (source.includes("工商银行官网") || source.includes("建设银行官网")) return 3;
+  if (source.includes("京东积存金") || source.includes("汇喵")) return 2;
+  if (source.includes("估算")) return 1;
+  return 0;
+}
 
 function toMap(quotes: Quote[]): Map<string, Quote> {
   const m = new Map<string, Quote>();
@@ -35,6 +44,25 @@ function splitQuotes(all: Quote[]): { market: Quote[]; bank: Quote[] } {
     (BANK_IDS.has(q.instrumentId) ? bank : market).push(q);
   }
   return { market, bank };
+}
+
+function mergeBankQuotes(current: Map<string, Quote>, incoming: Quote[], currentBankAt: number, incomingBankAt: number, now: number): Map<string, Quote> {
+  const next = new Map(current);
+  const currentIsFresh = currentBankAt > 0 && now - currentBankAt < BANK_FRESH_MS;
+  for (const q of incoming) {
+    const old = next.get(q.instrumentId);
+    if (!old) {
+      next.set(q.instrumentId, q);
+      continue;
+    }
+    const oldRank = bankSourceRank(old.source);
+    const newRank = bankSourceRank(q.source);
+    const isOlderPayload = incomingBankAt > 0 && currentBankAt > 0 && incomingBankAt < currentBankAt;
+    if (isOlderPayload) continue;
+    if (currentIsFresh && oldRank > newRank) continue;
+    next.set(q.instrumentId, q);
+  }
+  return next;
 }
 
 type Tab = "home" | "mine";
@@ -75,6 +103,10 @@ function HomeContent() {
   // 故提升到 HomeContent（与 showDiag 同级），由 MineTab 受控触发开、决策/返回条触发关。
   const [donateOpen, setDonateOpen] = useState(false);
   const mounted = useRef(true);
+  const freshnessRef = useRef<{
+    quotesUpdatedAt?: number;
+    bankUpdatedAt?: number;
+  }>({});
 
   // 价格提醒：监控行情 + 银行积存金价格表（取 price）。
   // 银行积存金的 price=你买入价(ask)，与对比卡片口径一致。
@@ -89,16 +121,31 @@ function HomeContent() {
 
   const applyPayload = useCallback((data: { quotes: Quote[]; warnings?: string[]; serverTime: number; quotesUpdatedAt?: number; bankUpdatedAt?: number; quotesError?: string; bankError?: string }) => {
     const { market, bank } = splitQuotes(data.quotes);
+    const currentFreshness = freshnessRef.current;
+    const incomingBankAt = data.bankUpdatedAt ?? currentFreshness.bankUpdatedAt ?? 0;
+    const currentBankAt = currentFreshness.bankUpdatedAt ?? 0;
+    const isOlderBankPayload = bank.length > 0 && incomingBankAt > 0 && currentBankAt > 0 && incomingBankAt < currentBankAt;
+    const nowMs = Date.now();
+
     setQuotes(toMap(market));
-    if (bank.length > 0) setBankQuotes(toMap(bank));
+    if (bank.length > 0) {
+      setBankQuotes((prev) => mergeBankQuotes(prev, bank, currentBankAt, incomingBankAt, nowMs));
+    }
     setWarnings(data.warnings ?? []);
     setLastUpdate(data.serverTime);
-    setFreshness((prev) => ({
-      quotesUpdatedAt: data.quotesUpdatedAt ?? prev.quotesUpdatedAt,
-      bankUpdatedAt: data.bankUpdatedAt ?? prev.bankUpdatedAt,
-      quotesError: data.quotesError,
-      bankError: data.bankError ?? prev.bankError,
-    }));
+    setFreshness((prev) => {
+      const next = {
+        quotesUpdatedAt: data.quotesUpdatedAt ?? prev.quotesUpdatedAt,
+        bankUpdatedAt: isOlderBankPayload ? prev.bankUpdatedAt : (data.bankUpdatedAt ?? prev.bankUpdatedAt),
+        quotesError: data.quotesError,
+        bankError: isOlderBankPayload ? prev.bankError : (data.bankError ?? prev.bankError),
+      };
+      freshnessRef.current = {
+        quotesUpdatedAt: next.quotesUpdatedAt,
+        bankUpdatedAt: next.bankUpdatedAt,
+      };
+      return next;
+    });
   }, []);
 
   useAppForeground(() => {
