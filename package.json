@@ -1,6 +1,6 @@
 {
   "name": "gold-phone-app",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "description": "独立隔离的黄金看板手机网页版（实时金价+提醒、银行积存金对比）。与主项目完全解耦，自带数据抓取。",
   "scripts": {
@@ -10,7 +10,8 @@
     "start": "next start -p 3100",
     "lint": "eslint .",
     "bundle:node": "node scripts/bundle-node.mjs",
-    "cap:sync": "npm run bundle:node && npm run build && npx cap sync android"
+    "cap:sync": "npm run bundle:node && npm run build && npx cap sync android",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",

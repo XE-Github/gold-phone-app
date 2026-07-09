@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -43,12 +44,25 @@ public class GoldForegroundService extends Service {
     public static final String KEY_SNAPSHOT = "snapshot";
     public static final String KEY_LAST_SUCCESS = "lastSuccess";
     public static final String KEY_LAST_ERROR = "lastError";
+
     private static final int NOTIFICATION_ID = 8801;
-    private static final int FETCH_SECONDS = 15;
+    private static final int MARKET_SECONDS = 2;
+    private static final int BANK_SECONDS = 2;
+    private static final int NET_TIMEOUT_MS = 8000;
     private static final double TROY_OUNCE_GRAMS = 31.1035;
+    private static final String HUIMIAO_BASE = "https://www.zhengmeili.asia/ec/skill/gateway";
+
     private static volatile boolean running = false;
     private static ScheduledExecutorService executor;
+
+    private final Object stateLock = new Object();
     private final Set<String> lockedRules = new HashSet<>();
+    private JSONArray marketQuotes = new JSONArray();
+    private JSONArray bankQuotes = new JSONArray();
+    private long quotesUpdatedAt = 0;
+    private long bankUpdatedAt = 0;
+    private String quotesError = null;
+    private String bankError = null;
 
     public static boolean isRunning() {
         return running;
@@ -96,6 +110,7 @@ public class GoldForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         ensureChannels();
+        loadPreviousSnapshot();
     }
 
     @Override
@@ -127,9 +142,11 @@ public class GoldForegroundService extends Service {
 
     private void startLoop() {
         if (executor != null && !executor.isShutdown()) return;
-        executor = Executors.newSingleThreadScheduledExecutor();
-        executor.execute(this::safeFetchOnce);
-        executor.scheduleAtFixedRate(this::safeFetchOnce, FETCH_SECONDS, FETCH_SECONDS, TimeUnit.SECONDS);
+        executor = Executors.newScheduledThreadPool(2);
+        executor.execute(this::safeFetchMarket);
+        executor.execute(this::safeFetchBank);
+        executor.scheduleWithFixedDelay(this::safeFetchMarket, MARKET_SECONDS, MARKET_SECONDS, TimeUnit.SECONDS);
+        executor.scheduleWithFixedDelay(this::safeFetchBank, BANK_SECONDS, BANK_SECONDS, TimeUnit.SECONDS);
     }
 
     private void stopLoop() {
@@ -140,30 +157,123 @@ public class GoldForegroundService extends Service {
         }
     }
 
-    private void safeFetchOnce() {
+    private void safeFetchMarket() {
         try {
-            JSONObject payload = fetchMarketPayload();
-            SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            long now = System.currentTimeMillis();
-            prefs.edit()
-                .putString(KEY_SNAPSHOT, payload.toString())
-                .putLong(KEY_LAST_SUCCESS, now)
-                .remove(KEY_LAST_ERROR)
-                .apply();
-            evaluateAlerts(payload.optJSONArray("quotes"));
-            updateServiceNotification("后台已更新 " + formatTime(now));
+            JSONArray quotes = fetchMarketQuotes();
+            synchronized (stateLock) {
+                marketQuotes = quotes;
+                quotesUpdatedAt = System.currentTimeMillis();
+                quotesError = null;
+                persistSnapshotLocked();
+            }
         } catch (Exception e) {
-            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_LAST_ERROR, e.getMessage() == null ? String.valueOf(e) : e.getMessage())
-                .apply();
-            updateServiceNotification("后台更新失败，仍在重试");
+            synchronized (stateLock) {
+                quotesError = messageOf(e);
+                persistSnapshotLocked();
+            }
         }
     }
 
-    private JSONObject fetchMarketPayload() throws Exception {
+    private void safeFetchBank() {
+        try {
+            BankResult result = fetchBankQuotes();
+            synchronized (stateLock) {
+                if (result.successCount > 0) {
+                    bankQuotes = mergeById(bankQuotes, result.quotes);
+                    bankUpdatedAt = System.currentTimeMillis();
+                    bankError = null;
+                } else {
+                    bankError = "银行后台抓取未取到有效数据";
+                }
+                persistSnapshotLocked();
+            }
+        } catch (Exception e) {
+            synchronized (stateLock) {
+                bankError = messageOf(e);
+                persistSnapshotLocked();
+            }
+        }
+    }
+
+    private void persistSnapshotLocked() {
+        try {
+            JSONObject payload = buildSnapshotLocked();
+            long now = System.currentTimeMillis();
+            SharedPreferences.Editor editor = getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_SNAPSHOT, payload.toString())
+                .putLong(KEY_LAST_SUCCESS, now);
+            if (quotesError != null || bankError != null) {
+                editor.putString(KEY_LAST_ERROR, firstNonEmpty(quotesError, bankError));
+            } else {
+                editor.remove(KEY_LAST_ERROR);
+            }
+            editor.apply();
+            evaluateAlerts(payload.optJSONArray("quotes"));
+            updateServiceNotification(statusTextLocked());
+        } catch (Exception e) {
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_LAST_ERROR, messageOf(e))
+                .apply();
+        }
+    }
+
+    private JSONObject buildSnapshotLocked() throws Exception {
+        JSONArray quotes = new JSONArray();
+        appendAll(quotes, marketQuotes);
+        appendAll(quotes, bankQuotes);
+        long now = System.currentTimeMillis();
+        JSONObject payload = new JSONObject();
+        payload.put("quotes", quotes);
+        payload.put("warnings", new JSONArray().put("Android后台原生抓取：行情与5家积存金均为2秒尝试刷新；上游可能缓存/限流，仍以timestamp/source为准"));
+        payload.put("serverTime", now);
+        if (quotesUpdatedAt > 0) payload.put("quotesUpdatedAt", quotesUpdatedAt);
+        if (bankUpdatedAt > 0) payload.put("bankUpdatedAt", bankUpdatedAt);
+        if (quotesError != null) payload.put("quotesError", quotesError);
+        if (bankError != null) payload.put("bankError", bankError);
+        payload.put("bankRealCount", bankQuotes.length());
+        payload.put("bankTotal", 5);
+        return payload;
+    }
+
+    private String statusTextLocked() {
+        String market = quotesUpdatedAt > 0 ? formatTime(quotesUpdatedAt) : "--:--:--";
+        String bank = bankUpdatedAt > 0 ? formatTime(bankUpdatedAt) : "--:--:--";
+        if (quotesError != null || bankError != null) return "行情 " + market + " · 银行 " + bank + "（部分失败）";
+        return "行情 " + market + " · 银行 " + bank;
+    }
+
+    private void loadPreviousSnapshot() {
+        try {
+            String raw = getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SNAPSHOT, null);
+            if (raw == null) return;
+            JSONObject snapshot = new JSONObject(raw);
+            JSONArray all = snapshot.optJSONArray("quotes");
+            if (all == null) return;
+            JSONArray market = new JSONArray();
+            JSONArray bank = new JSONArray();
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject q = all.getJSONObject(i);
+                if (isBankId(q.optString("instrumentId"))) bank.put(q);
+                else market.put(q);
+            }
+            synchronized (stateLock) {
+                marketQuotes = market;
+                bankQuotes = bank;
+                quotesUpdatedAt = snapshot.optLong("quotesUpdatedAt", 0);
+                bankUpdatedAt = snapshot.optLong("bankUpdatedAt", 0);
+                quotesError = snapshot.optString("quotesError", null);
+                bankError = snapshot.optString("bankError", null);
+            }
+        } catch (Exception ignored) {
+            /* ignore corrupt previous snapshot */
+        }
+    }
+
+    private JSONArray fetchMarketQuotes() throws Exception {
         String[] symbols = new String[]{"hf_XAU", "USDCNY", "gds_AU9999", "gds_AUTD", "nf_AU0", "sh518880"};
-        String text = httpGet("https://hq.sinajs.cn/list=" + join(symbols), "GB18030");
+        Map<String, String> headers = defaultHeaders("https://finance.sina.com.cn");
+        String text = httpGet("https://hq.sinajs.cn/list=" + join(symbols), "GB18030", headers);
         Map<String, JSONObject> byId = new HashMap<>();
         Pattern p = Pattern.compile("var hq_str_([^=]+)=\"([^\"]*)\";");
         Matcher m = p.matcher(text);
@@ -191,13 +301,99 @@ public class GoldForegroundService extends Service {
             JSONObject q = byId.get(id);
             if (q != null) quotes.put(q);
         }
-        long now = System.currentTimeMillis();
-        JSONObject payload = new JSONObject();
-        payload.put("quotes", quotes);
-        payload.put("warnings", new JSONArray().put("Android后台原生抓取：覆盖行情/交易所标的；银行积存金仍以前台 Node 数据为准"));
-        payload.put("serverTime", now);
-        payload.put("quotesUpdatedAt", now);
-        return payload;
+        return quotes;
+    }
+
+    private BankResult fetchBankQuotes() throws Exception {
+        JSONArray out = new JSONArray();
+        int success = 0;
+        JSONObject q;
+        q = fetchHuimiaoBank("icbc-acc-gold", "ICBC", "Gold", "工商银行", "工银积存金");
+        if (q != null) { out.put(q); success++; }
+        q = fetchJdBank("czbank-acc-gold", "1961543816", "v2", "浙商银行", "涌金积存金");
+        if (q != null) { out.put(q); success++; }
+        q = fetchJdBank("cmbc-acc-gold", "P005", "v1", "民生银行", "民生积存金");
+        if (q != null) { out.put(q); success++; }
+        q = fetchHuimiaoJdBank("cgb-acc-gold", "广发积存金", "广发银行", "广发积存金");
+        if (q != null) { out.put(q); success++; }
+        q = fetchHuimiaoBank("ccb-acc-gold", "CCB", "Gold", "建设银行", "龙鼎金");
+        if (q != null) { out.put(q); success++; }
+        return new BankResult(out, success);
+    }
+
+    private JSONObject fetchHuimiaoBank(String id, String bankType, String currencyType, String bankName, String product) {
+        try {
+            String url = HUIMIAO_BASE + "?type=rates_latest&currency_type=" + enc(currencyType) + "&bank_type=" + enc(bankType);
+            JSONObject data = new JSONObject(httpGet(url, "UTF-8", defaultHeaders("https://www.zhengmeili.asia")));
+            if (!data.optBoolean("success")) return null;
+            double ask = data.optDouble("purchase_value", Double.NaN);
+            double bid = data.optDouble("sale_value", Double.NaN);
+            if (Double.isNaN(ask) || ask <= 0) return null;
+            JSONObject q = bankQuoteBase(id, round2(ask), bankName, product, "汇喵金融实时数据（Android后台） · " + bankName + product);
+            q.put("ask", round2(ask));
+            if (!Double.isNaN(bid) && bid > 0) q.put("bid", round2(bid));
+            return q;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONObject fetchHuimiaoJdBank(String id, String jdName, String bankName, String product) {
+        try {
+            String url = HUIMIAO_BASE + "?type=rates_latest&currency_type=" + enc(jdName) + "&bank_type=JD";
+            JSONObject data = new JSONObject(httpGet(url, "UTF-8", defaultHeaders("https://www.zhengmeili.asia")));
+            if (!data.optBoolean("success")) return null;
+            double ask = data.optDouble("purchase_value", Double.NaN);
+            double bid = data.optDouble("sale_value", Double.NaN);
+            if (Double.isNaN(ask) || ask <= 0) return null;
+            JSONObject q = bankQuoteBase(id, round2(ask), bankName, product, "京东积存金实时数据（Android后台） · " + bankName + product);
+            q.put("ask", round2(ask));
+            if (!Double.isNaN(bid) && bid > 0) q.put("bid", round2(bid));
+            return q;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONObject fetchJdBank(String id, String sku, String api, String bankName, String product) {
+        try {
+            String url;
+            if ("v1".equals(api)) {
+                url = "https://api.jdjygold.com/gw/generic/hj/h5/m/latestPrice";
+            } else {
+                url = "https://api.jdjygold.com/gw2/generic/jrm/h5/m/stdLatestPrice?productSku=" + enc(sku);
+            }
+            Map<String, String> headers = defaultHeaders("https://jdjr.jd.com/");
+            headers.put("Origin", "https://jdjr.jd.com");
+            JSONObject data = new JSONObject(httpGet(url, "UTF-8", headers));
+            if (!data.optBoolean("success") || data.optInt("resultCode", -1) != 0) return null;
+            JSONObject datas = data.optJSONObject("resultData") != null ? data.optJSONObject("resultData").optJSONObject("datas") : null;
+            if (datas == null) return null;
+            double price = parseDouble(datas.optString("price", ""));
+            if (!Double.isFinite(price) || price <= 0) return null;
+            JSONObject q = bankQuoteBase(id, round2(price), bankName, product, "京东积存金实时数据（Android后台） · " + bankName + product);
+            q.put("ask", round2(price));
+            double change = parseDouble(datas.optString("upAndDownAmt", ""));
+            if (Double.isFinite(change)) q.put("change", change);
+            String rate = datas.optString("upAndDownRate", "").replace("%", "");
+            double pct = parseDouble(rate);
+            if (Double.isFinite(pct)) q.put("changePercent", pct);
+            String t = datas.optString("time", "");
+            if (t.length() > 0) q.put("timestamp", new java.util.Date(Long.parseLong(t)).toLocaleString());
+            return q;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONObject bankQuoteBase(String id, double price, String bankName, String product, String source) throws Exception {
+        JSONObject q = new JSONObject();
+        q.put("instrumentId", id);
+        q.put("price", price);
+        q.put("timestamp", new java.util.Date().toLocaleString());
+        q.put("source", source);
+        q.put("stale", false);
+        return q;
     }
 
     private JSONObject parseSina(String symbol, String raw) throws Exception {
@@ -206,8 +402,8 @@ public class GoldForegroundService extends Service {
         String id;
         double price;
         Double previous = null;
-        String timestamp = isoNow();
-        String source = "新浪财经（Android后台）";
+        String timestamp;
+        String source;
         if (symbol.equals("hf_XAU")) {
             id = "xau-usd";
             price = number(f, 0);
@@ -332,12 +528,11 @@ public class GoldForegroundService extends Service {
         if (manager != null) manager.notify(NOTIFICATION_ID, buildServiceNotification(text));
     }
 
-    private String httpGet(String url, String charset) throws Exception {
+    private String httpGet(String url, String charset, Map<String, String> headers) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setConnectTimeout(8000);
-        conn.setReadTimeout(8000);
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 gold-phone-app-android-bg/0.1");
-        conn.setRequestProperty("Referer", "https://finance.sina.com.cn");
+        conn.setConnectTimeout(NET_TIMEOUT_MS);
+        conn.setReadTimeout(NET_TIMEOUT_MS);
+        for (Map.Entry<String, String> h : headers.entrySet()) conn.setRequestProperty(h.getKey(), h.getValue());
         try {
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
@@ -353,6 +548,42 @@ public class GoldForegroundService extends Service {
         }
     }
 
+    private static Map<String, String> defaultHeaders(String referer) {
+        Map<String, String> h = new HashMap<>();
+        h.put("User-Agent", "Mozilla/5.0 gold-phone-app-android-bg/0.1");
+        h.put("Accept", "application/json,text/plain,text/html,*/*");
+        h.put("Accept-Language", "zh-CN,zh;q=0.9");
+        if (referer != null) h.put("Referer", referer);
+        return h;
+    }
+
+    private JSONArray mergeById(JSONArray oldArr, JSONArray updates) throws Exception {
+        Map<String, JSONObject> byId = new HashMap<>();
+        for (int i = 0; i < oldArr.length(); i++) {
+            JSONObject q = oldArr.getJSONObject(i);
+            byId.put(q.getString("instrumentId"), q);
+        }
+        for (int i = 0; i < updates.length(); i++) {
+            JSONObject q = updates.getJSONObject(i);
+            byId.put(q.getString("instrumentId"), q);
+        }
+        JSONArray out = new JSONArray();
+        String[] order = new String[]{"icbc-acc-gold", "czbank-acc-gold", "cmbc-acc-gold", "cgb-acc-gold", "ccb-acc-gold"};
+        for (String id : order) {
+            JSONObject q = byId.get(id);
+            if (q != null) out.put(q);
+        }
+        return out;
+    }
+
+    private static void appendAll(JSONArray target, JSONArray source) throws Exception {
+        for (int i = 0; i < source.length(); i++) target.put(source.get(i));
+    }
+
+    private static boolean isBankId(String id) {
+        return id != null && (id.equals("icbc-acc-gold") || id.equals("czbank-acc-gold") || id.equals("cmbc-acc-gold") || id.equals("cgb-acc-gold") || id.equals("ccb-acc-gold"));
+    }
+
     private static String join(String[] a) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < a.length; i++) {
@@ -360,6 +591,10 @@ public class GoldForegroundService extends Service {
             sb.append(a[i]);
         }
         return sb.toString();
+    }
+
+    private static String enc(String s) throws Exception {
+        return URLEncoder.encode(s, "UTF-8");
     }
 
     private static String get(String[] f, int i) {
@@ -379,6 +614,15 @@ public class GoldForegroundService extends Service {
             return Double.parseDouble(s);
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static double parseDouble(String s) {
+        try {
+            if (s == null || s.trim().length() == 0) return Double.NaN;
+            return Double.parseDouble(s.trim());
+        } catch (Exception e) {
+            return Double.NaN;
         }
     }
 
@@ -408,6 +652,16 @@ public class GoldForegroundService extends Service {
         return new java.text.SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(new java.util.Date(ms));
     }
 
+    private static String messageOf(Exception e) {
+        return e.getMessage() == null ? String.valueOf(e) : e.getMessage();
+    }
+
+    private static String firstNonEmpty(String a, String b) {
+        if (a != null && a.length() > 0) return a;
+        if (b != null && b.length() > 0) return b;
+        return null;
+    }
+
     private static String labelFor(String id) {
         if (id.equals("xau-cny")) return "人民币理论金价";
         if (id.equals("xau-usd")) return "伦敦金";
@@ -416,6 +670,20 @@ public class GoldForegroundService extends Service {
         if (id.equals("sge-autd")) return "Au(T+D)";
         if (id.equals("shfe-au-main")) return "沪金主力";
         if (id.equals("gold-etf-518880")) return "518880 ETF";
+        if (id.equals("icbc-acc-gold")) return "工行积存金";
+        if (id.equals("czbank-acc-gold")) return "浙商积存金";
+        if (id.equals("cmbc-acc-gold")) return "民生积存金";
+        if (id.equals("cgb-acc-gold")) return "广发积存金";
+        if (id.equals("ccb-acc-gold")) return "建行积存金";
         return id;
+    }
+
+    private static class BankResult {
+        final JSONArray quotes;
+        final int successCount;
+        BankResult(JSONArray quotes, int successCount) {
+            this.quotes = quotes;
+            this.successCount = successCount;
+        }
     }
 }
