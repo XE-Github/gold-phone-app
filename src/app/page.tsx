@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Quote } from "@/lib/types";
 import { HeroPrice } from "@/components/HeroPrice";
 import { TrendChart } from "@/components/TrendChart";
@@ -13,6 +13,8 @@ import { BackgroundDataCard } from "@/components/BackgroundDataCard";
 import { usePriceAlerts } from "@/lib/usePriceAlerts";
 import { useAndroidBackButton, useDoubleBackExit } from "@/lib/useAndroidBackButton";
 import { subscribeQuotes, type StreamStatus } from "@/lib/quotesStream";
+import { latestBackgroundSnapshot } from "@/lib/backgroundData";
+import { useAppForeground } from "@/lib/useAppForeground";
 import { BANK_GOLD_PRODUCTS } from "@/lib/bankProducts";
 import { DiagPanel } from "@/components/DiagPanel";
 import { ConsentGate } from "@/components/ConsentGate";
@@ -24,6 +26,15 @@ function toMap(quotes: Quote[]): Map<string, Quote> {
   const m = new Map<string, Quote>();
   for (const q of quotes) m.set(q.instrumentId, q);
   return m;
+}
+
+function splitQuotes(all: Quote[]): { market: Quote[]; bank: Quote[] } {
+  const market: Quote[] = [];
+  const bank: Quote[] = [];
+  for (const q of all) {
+    (BANK_IDS.has(q.instrumentId) ? bank : market).push(q);
+  }
+  return { market, bank };
 }
 
 type Tab = "home" | "mine";
@@ -76,6 +87,26 @@ function HomeContent() {
 
   const alerts = usePriceAlerts(priceById);
 
+  const applyPayload = useCallback((data: { quotes: Quote[]; warnings?: string[]; serverTime: number; quotesUpdatedAt?: number; bankUpdatedAt?: number; quotesError?: string; bankError?: string }) => {
+    const { market, bank } = splitQuotes(data.quotes);
+    setQuotes(toMap(market));
+    if (bank.length > 0) setBankQuotes(toMap(bank));
+    setWarnings(data.warnings ?? []);
+    setLastUpdate(data.serverTime);
+    setFreshness((prev) => ({
+      quotesUpdatedAt: data.quotesUpdatedAt ?? prev.quotesUpdatedAt,
+      bankUpdatedAt: data.bankUpdatedAt ?? prev.bankUpdatedAt,
+      quotesError: data.quotesError,
+      bankError: data.bankError ?? prev.bankError,
+    }));
+  }, []);
+
+  useAppForeground(() => {
+    void latestBackgroundSnapshot().then((payload) => {
+      if (payload && mounted.current) applyPayload(payload);
+    });
+  });
+
   // 安卓系统返回键逐级返回（仅原生壳生效；web/dev 守卫下不注册）。
   // 注册 backButton 会接管 Capacitor 默认 exitApp → 首页退出改由双击逻辑负责。
   const { requestExit, showHint } = useDoubleBackExit();
@@ -100,21 +131,7 @@ function HomeContent() {
       unsubscribe = subscribeQuotes(
         (data) => {
           if (!mounted.current) return;
-          const market: Quote[] = [];
-          const bank: Quote[] = [];
-          for (const q of data.quotes) {
-            (BANK_IDS.has(q.instrumentId) ? bank : market).push(q);
-          }
-          setQuotes(toMap(market));
-          setBankQuotes(toMap(bank));
-          setWarnings(data.warnings ?? []);
-          setLastUpdate(data.serverTime);
-          setFreshness({
-            quotesUpdatedAt: data.quotesUpdatedAt,
-            bankUpdatedAt: data.bankUpdatedAt,
-            quotesError: data.quotesError,
-            bankError: data.bankError,
-          });
+          applyPayload(data);
         },
         (s) => {
           if (mounted.current) setStatus(s);
@@ -126,7 +143,7 @@ function HomeContent() {
       mounted.current = false;
       unsubscribe?.();
     };
-  }, []);
+  }, [applyPayload]);
 
   // 1s now 计时器：驱动诚实条的 ageSec 随时间走。queueMicrotask 推迟首帧 set 出同步体
   // （满足 set-state-in-effect）；interval 回调本就在同步体外。

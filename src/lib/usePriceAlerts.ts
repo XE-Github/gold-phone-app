@@ -10,6 +10,7 @@ import {
   showSystemNotification,
 } from "./notify";
 import { metaFor } from "./display";
+import { syncBackgroundAlertRules } from "./backgroundData";
 import { useAppForeground } from "./useAppForeground";
 
 const STORAGE_KEY = "gold-phone-price-alerts-v1";
@@ -152,6 +153,7 @@ export function usePriceAlerts(priceById: Map<string, number>) {
     } catch {
       /* 忽略存储失败 */
     }
+    void syncBackgroundAlertRules(rules);
   }, [rules, hydrated]);
 
   // 规则评估（单一事实源）。价格变化时调，回前台时也调（justResumed=true）。

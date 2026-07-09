@@ -47,7 +47,7 @@ export function BackgroundDataCard() {
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-white">后台数据服务</h2>
           <p className="mt-0.5 text-[13px] leading-relaxed text-slate-500">
-            开启后会显示常驻通知，尝试让行情抓取和提醒在后台继续运行。
+            开启后会显示常驻通知，由 Android 原生服务在后台抓取行情并判断提醒。
           </p>
         </div>
         <button
@@ -62,7 +62,8 @@ export function BackgroundDataCard() {
       </div>
 
       <div className="mt-3 rounded-xl border border-amber-400/15 bg-amber-500/[0.06] p-3 text-[13px] leading-relaxed text-amber-100/75">
-        <p>说明：这是 Android 前台服务，会增加耗电；部分国产 ROM 仍可能因省电策略限制，需要真机长时间验证。</p>
+        <p>说明：这是 Android 前台服务，会增加耗电；当前后台原生抓取覆盖行情/交易所标的，银行积存金仍以前台数据为准。</p>
+        <p className="mt-1">部分国产 ROM 仍可能因省电策略限制，需要真机长时间验证。</p>
         {!supported && <p className="mt-1 text-slate-400">当前环境不是原生 App，无法开启。</p>}
         {phase === "error" && <p className="mt-1 text-rose-200">{msg || "后台服务操作失败"}</p>}
       </div>
